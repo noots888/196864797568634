@@ -23,7 +23,7 @@ var LeanMapApp={
     try{
       this.bind();
       await this.clearOldShellCache();
-      UI.progress(true,'Starting Map_APP-V3.1.86 GPS_ARROW…','Loading core map',8);
+      UI.progress(true,'Starting Map_APP-V3.1.87_KXKK_ICON…','Loading core map',8);
       if(window.FieldMapConductorDataLoader?.ready){
         UI.progress(true,'Loading conductor reference…','Reading saved conductor JSON if loaded',12);
         await window.FieldMapConductorDataLoader.ready;
