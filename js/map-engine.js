@@ -1,5 +1,5 @@
 const MapEngine={
-  map:null, layers:{}, markerLayer:null, routeLayer:null, connectedLineLayer:null, utilityLayer:null, userMarker:null, gpsWatchId:null, gpsMode:'free', gpsProfile:'walking', gpsLast:null, gpsError:false, base:'street', satellite:false, drawing:false, drawToken:0, mapRenderer:null, currentDisplay:'none', currentCircuit:null, currentCircuits:[], currentCircuitRoutes:[], lastFullCircuitAssets:[], lastFullCircuitLabel:'', circuitDensityMode:'', gpsNearestCache:null, gpsPanelHidden:false,
+  map:null, layers:{}, markerLayer:null, routeLayer:null, connectedLineLayer:null, utilityLayer:null, userMarker:null, gpsWatchId:null, gpsMode:'free', gpsProfile:'walking', gpsLast:null, gpsError:false, base:'street', satellite:false, drawing:false, drawToken:0, mapRenderer:null, currentDisplay:'none', currentCircuit:null, currentCircuits:[], currentCircuitRoutes:[], lastFullCircuitAssets:[], lastFullCircuitLabel:'', circuitDensityMode:'', gpsNearestCache:null, gpsPanelHidden:false, gpsPanelMinimized:false, gpsPendingLocateOnce:false, gpsInteractionTimer:null, _gpsUserMoving:false, _gpsSuspendUntil:0, _gpsProgrammaticMoveUntil:0,
   init(){
     if(!window.L){throw new Error('Leaflet failed to load. Check internet connection for map library.');}
     this.map=L.map('map',{zoomControl:false,preferCanvas:true}).setView([-31.9523,115.8613],10);
@@ -14,7 +14,9 @@ const MapEngine={
     this.utilityLayer=L.layerGroup().addTo(this.map);
     this.map.on('popupopen',ev=>this.preparePopupScroll(ev));
     this.map.on('popupclose',()=>{try{this.map.dragging.enable();}catch(e){}});
-    this.map.on('zoomend',()=>this.onZoomDensityChange());
+    this.map.on('movestart zoomstart dragstart',()=>this.onGpsMapUserMovementStart());
+    this.map.on('moveend dragend',()=>this.onGpsMapUserMovementEnd());
+    this.map.on('zoomend',()=>{this.onZoomDensityChange();this.onGpsMapUserMovementEnd();});
     this.loadGpsProfile();
     setTimeout(()=>{this.updateGpsButton();this.updateGpsProfileButtons();this.updateMapLayerButton?.();},50);
     setTimeout(()=>this.map.invalidateSize(),250);
@@ -1884,23 +1886,41 @@ const MapEngine={
     else UI.toast('No searched map dots to fit.');
   },
   locate(){
-    this.cycleGpsMode();
+    this.setGpsMode('free',{toast:false,showPanel:true});
+    this.startGpsWatch(false);
+    this.gpsPendingLocateOnce=true;
+    if(this.gpsLast&&Number.isFinite(Number(this.gpsLast.lat))&&Number.isFinite(Number(this.gpsLast.lon))){
+      this.jumpToGpsPosition([this.gpsLast.lat,this.gpsLast.lon]);
+      this.gpsPendingLocateOnce=false;
+    }else{
+      UI?.toast?.('Finding GPS position...');
+    }
   },
   toggleGpsFollow(){
-    this.cycleGpsMode();
+    this.locate();
+  },
+  setGpsMode(mode='free',opts={}){
+    const wanted=['free','follow','track'].includes(mode)?mode:'free';
+    this.gpsMode=wanted;
+    this.gpsError=false;
+    this._gpsUserMoving=false;
+    this._gpsSuspendUntil=0;
+    if(this.gpsInteractionTimer){clearTimeout(this.gpsInteractionTimer);this.gpsInteractionTimer=null;}
+    try{localStorage.setItem('fieldMapGpsMode',this.gpsMode);}catch(e){}
+    this.updateGpsButton();
+    if(opts.showPanel!==false)this.showGpsPanel();
+    this.startGpsWatch(false);
+    this.updateGpsPanel();
+    if(opts.toast){
+      const label=this.gpsMode==='free'?'Free scroll — GPS updates only':this.gpsMode==='follow'?'Follow — snap-back after 5 seconds idle':'Tracking/Heli — heading look-ahead';
+      UI?.toast?.(`GPS mode: ${label}`);
+    }
+    if(this.gpsLast&&(this.gpsMode==='follow'||this.gpsMode==='track'))this.applyGpsModeView([this.gpsLast.lat,this.gpsLast.lon],{force:true});
   },
   cycleGpsMode(){
     const order=['free','follow','track'];
     const current=order.includes(this.gpsMode)?this.gpsMode:'free';
-    this.gpsMode=order[(order.indexOf(current)+1)%order.length];
-    this.gpsError=false;
-    try{localStorage.setItem('fieldMapGpsMode',this.gpsMode);}catch(e){}
-    this.updateGpsButton();
-    this.showGpsPanel();
-    this.startGpsWatch(false);
-    const label=this.gpsMode==='free'?'Free scroll — GPS updates only':this.gpsMode==='follow'?'Follow — map follows your movement':'Tracking — tight follow / higher zoom';
-    UI?.toast?.(`GPS mode: ${label}`);
-    if(this.gpsLast&&(this.gpsMode==='follow'||this.gpsMode==='track'))this.applyGpsModeView([this.gpsLast.lat,this.gpsLast.lon]);
+    this.setGpsMode(order[(order.indexOf(current)+1)%order.length],{toast:true,showPanel:true});
   },
   loadGpsProfile(){
     try{
@@ -1919,15 +1939,15 @@ const MapEngine={
     const p=['walking','driving','helicopter'].includes(profile)?profile:'walking';
     this.gpsProfile=p;
     try{localStorage.setItem('fieldMapGpsProfile',p);}catch(e){}
-    if(p==='helicopter'&&this.gpsMode==='free')this.gpsMode='follow';
-    if(p==='driving'&&this.gpsMode==='track')this.gpsMode='follow';
+    if(p==='helicopter')this.gpsMode='track';
     try{localStorage.setItem('fieldMapGpsMode',this.gpsMode);}catch(e){}
     this.showGpsPanel();
     this.updateGpsButton();
     this.updateGpsProfileButtons();
     this.updateGpsPanel();
     this.startGpsWatch(false);
-    UI?.toast?.(`GPS profile: ${this.gpsProfileLabel(p)}.`);
+    if(this.gpsLast&&(this.gpsMode==='follow'||this.gpsMode==='track'))this.applyGpsModeView([this.gpsLast.lat,this.gpsLast.lon],{force:true});
+    UI?.toast?.(`${this.gpsProfileLabel(p)} GPS${p==='helicopter'?' tracking on.':'.'}`);
   },
   gpsModeLabel(){
     return this.gpsMode==='track'?'Tracking':this.gpsMode==='follow'?'Follow':'Free scroll';
@@ -1935,13 +1955,23 @@ const MapEngine={
   showGpsPanel(){
     this.gpsPanelHidden=false;
     const panel=document.getElementById('gpsPatrolPanel');
-    if(panel)panel.classList.remove('hidden');
+    if(panel){
+      panel.classList.remove('hidden');
+      panel.classList.toggle('minimized',!!this.gpsPanelMinimized);
+    }
     this.updateGpsProfileButtons();
     this.updateGpsPanel();
   },
   hideGpsPanel(){
     this.gpsPanelHidden=true;
     document.getElementById('gpsPatrolPanel')?.classList.add('hidden');
+  },
+  toggleGpsPanelMinimized(){
+    this.gpsPanelMinimized=!this.gpsPanelMinimized;
+    const panel=document.getElementById('gpsPatrolPanel');
+    if(panel)panel.classList.toggle('minimized',this.gpsPanelMinimized);
+    const btn=document.getElementById('gpsPanelMinBtn');
+    if(btn){btn.textContent=this.gpsPanelMinimized?'＋':'−';btn.setAttribute('aria-label',this.gpsPanelMinimized?'Expand GPS panel':'Minimise GPS panel');}
   },
   updateGpsProfileButtons(){
     const p=this.gpsProfile||'walking';
@@ -1951,6 +1981,14 @@ const MapEngine={
     });
     const lab=document.getElementById('gpsProfileLabel');
     if(lab)lab.textContent=`${this.gpsProfileLabel(p)} GPS`;
+    const followBtn=document.getElementById('gpsFollowModeBtn');
+    if(followBtn){followBtn.textContent='Follow';followBtn.classList.toggle('active',this.gpsMode==='follow');}
+    const trackBtn=document.getElementById('gpsTrackModeBtn');
+    if(trackBtn){trackBtn.textContent='Tracking/Heli';trackBtn.classList.toggle('active',this.gpsMode==='track');}
+    const locateBtn=document.getElementById('gpsLocateModeBtn');
+    if(locateBtn){locateBtn.textContent='Locate';locateBtn.classList.toggle('active',this.gpsMode==='free');}
+    const minBtn=document.getElementById('gpsPanelMinBtn');
+    if(minBtn){minBtn.textContent=this.gpsPanelMinimized?'＋':'−';minBtn.setAttribute('aria-label',this.gpsPanelMinimized?'Expand GPS panel':'Minimise GPS panel');}
   },
   updateGpsButton(){
     const btn=document.getElementById('gpsFollow');
@@ -1960,7 +1998,7 @@ const MapEngine={
     if(this.gpsProfile==='helicopter')btn.classList.add('gps-helicopter');
     if(this.gpsProfile==='driving')btn.classList.add('gps-driving');
     btn.classList.toggle('active',this.gpsMode!=='free');
-    btn.title=`${this.gpsProfileLabel()} GPS ${this.gpsModeLabel()} — tap to change follow mode`;
+    btn.title='GPS locate — jump to current position, free scroll stays on';
     btn.setAttribute('aria-label',btn.title);
   },
   startGpsWatch(auto=false){
@@ -1989,7 +2027,8 @@ const MapEngine={
         ts:Date.now()
       };
       if(!this.userMarker)this.userMarker=L.marker(ll,{icon,zIndexOffset:900}).addTo(this.map); else this.userMarker.setLatLng(ll);
-      this.applyGpsModeView(ll);
+      if(this.gpsPendingLocateOnce){this.jumpToGpsPosition(ll);this.gpsPendingLocateOnce=false;}
+      else this.applyGpsModeView(ll);
       const acc=Math.round(pos.coords.accuracy||0);
       const status=document.getElementById('gpsStatus');
       if(status)status.textContent=`GPS ${acc?`${acc}m`:'—'}`;
@@ -2007,27 +2046,82 @@ const MapEngine={
     };
     this.gpsWatchId=navigator.geolocation.watchPosition(update,fail,{enableHighAccuracy:true,timeout:15000,maximumAge:this.gpsProfile==='helicopter'?750:1500});
   },
-  applyGpsModeView(ll){
+  gpsPanelOverlapPx(){
+    const panel=document.getElementById('gpsPatrolPanel');
+    if(!panel||panel.classList.contains('hidden'))return 0;
+    const mapEl=this.map?.getContainer?.()||document.getElementById('map');
+    if(!mapEl)return Math.max(0,Number(panel.getBoundingClientRect?.().height)||0);
+    try{
+      const p=panel.getBoundingClientRect();
+      const m=mapEl.getBoundingClientRect();
+      return Math.max(0,Math.min(p.bottom,m.bottom)-Math.max(p.top,m.top));
+    }catch(e){return 0;}
+  },
+  gpsLookAheadLatLng(ll,z){
+    if(!this.map||!Array.isArray(ll)||!window.L)return Array.isArray(ll)?L.latLng(ll[0],ll[1]):ll;
+    const base=L.latLng(Number(ll[0]),Number(ll[1]));
+    const heading=Number(this.gpsLast?.heading);
+    if(!Number.isFinite(heading))return base;
+    const speed=Number(this.gpsLast?.speed);
+    const panelPx=this.gpsPanelOverlapPx();
+    const panelBoost=panelPx>0?Math.min(150,Math.max(70,panelPx*0.32)):80;
+    const speedBoost=Number.isFinite(speed)&&speed>0?Math.min(95,speed*6):0;
+    const lookPx=(this.gpsMode==='track'?170:125)+panelBoost+speedBoost;
+    const rad=heading*Math.PI/180;
+    const dx=Math.sin(rad)*lookPx;
+    const dy=-Math.cos(rad)*lookPx;
+    try{
+      const pt=this.map.project(base,z).add([dx,dy]);
+      return this.map.unproject(pt,z);
+    }catch(e){return base;}
+  },
+  gpsSetAheadView(ll,z,opts={}){
+    const center=(this.gpsMode==='track')?this.gpsLookAheadLatLng(ll,z):L.latLng(ll[0],ll[1]);
+    this.setProgrammaticGpsView(()=>this.map.setView(center,z,opts));
+  },
+  setProgrammaticGpsView(fn){
+    this._gpsProgrammaticMoveUntil=Date.now()+800;
+    try{fn?.();}finally{setTimeout(()=>{if(Date.now()>(this._gpsProgrammaticMoveUntil||0))this._gpsProgrammaticMoveUntil=0;},850);}
+  },
+  jumpToGpsPosition(ll){
+    if(!this.map||!Array.isArray(ll))return;
+    const z=this.map.getZoom?.()||15;
+    this.setProgrammaticGpsView(()=>this.map.setView(ll,z,{animate:true,duration:0.25}));
+    this.updateGpsButton();
+    this.updateGpsPanel();
+    UI?.toast?.('GPS located. Free scroll on.');
+  },
+  onGpsMapUserMovementStart(){
+    if(this.gpsMode==='free')return;
+    if(Date.now()<(this._gpsProgrammaticMoveUntil||0))return;
+    this._gpsUserMoving=true;
+    this._gpsSuspendUntil=Date.now()+5000;
+    if(this.gpsInteractionTimer){clearTimeout(this.gpsInteractionTimer);this.gpsInteractionTimer=null;}
+  },
+  onGpsMapUserMovementEnd(){
+    if(this.gpsMode==='free')return;
+    if(Date.now()<(this._gpsProgrammaticMoveUntil||0))return;
+    this._gpsUserMoving=false;
+    this._gpsSuspendUntil=Date.now()+5000;
+    if(this.gpsInteractionTimer)clearTimeout(this.gpsInteractionTimer);
+    this.gpsInteractionTimer=setTimeout(()=>{
+      this.gpsInteractionTimer=null;
+      if(this.gpsMode==='free'||!this.gpsLast)return;
+      if(Date.now()<(this._gpsSuspendUntil||0)-50)return;
+      this.applyGpsModeView([this.gpsLast.lat,this.gpsLast.lon],{force:true});
+    },5000);
+  },
+  applyGpsModeView(ll,opts={}){
     if(!this.map||!Array.isArray(ll))return;
     if(this.gpsMode==='free')return;
     const now=Date.now();
-    const heli=this.gpsProfile==='helicopter';
-    const drive=this.gpsProfile==='driving';
-    const throttle=heli?1100:(drive?750:400);
-    if(now-(this._lastGpsViewAt||0)<throttle)return;
+    if(!opts.force&&(this._gpsUserMoving||now<(this._gpsSuspendUntil||0)))return;
+    const throttle=this.gpsMode==='track'?850:650;
+    if(!opts.force&&now-(this._lastGpsViewAt||0)<throttle)return;
     this._lastGpsViewAt=now;
-    if(heli){
-      const z=this.gpsMode==='track'?15:Math.max(Math.min(this.map.getZoom()||14,15),14);
-      this.map.setView(ll,z,{animate:true,duration:0.35});
-    }else if(drive){
-      const z=this.gpsMode==='track'?17:Math.max(this.map.getZoom()||16,16);
-      this.map.setView(ll,z,{animate:true,duration:0.25});
-    }else if(this.gpsMode==='follow'){
-      const z=Math.max(this.map.getZoom()||17,17);
-      this.map.setView(ll,z,{animate:true,duration:0.2});
-    }else if(this.gpsMode==='track'){
-      this.map.setView(ll,18,{animate:true,duration:0.18});
-    }
+    const z=this.map.getZoom?.()||15;
+    if(this.gpsMode==='track')this.gpsSetAheadView(ll,z,{animate:true,duration:0.3});
+    else if(this.gpsMode==='follow')this.setProgrammaticGpsView(()=>this.map.setView(ll,z,{animate:true,duration:0.22}));
   },
   deriveGpsHeading(prev,next){
     if(!prev||!next)return NaN;
@@ -2170,7 +2264,10 @@ const MapEngine={
     set('gpsHeadingValue',Number.isFinite(heading)?`${Math.round(heading)}°`:'—');
     set('gpsAccuracyValue',Number.isFinite(acc)?`${Math.round(acc)} m`:'—');
     const status=document.getElementById('gpsStatus');
-    if(status)status.textContent=`${this.gpsModeLabel()} · ${Number.isFinite(acc)?Math.round(acc)+'m':'GPS'}`;
+    if(status){
+      const mode=this.gpsMode==='track'?'Tracking/Heli':this.gpsModeLabel();
+      status.textContent=`${mode} · ${Number.isFinite(acc)?Math.round(acc)+'m':'GPS'}`;
+    }
     const sum=this.gpsNearestSummary();
     if(sum?.nearest){
       set('gpsNearestValue',`${this.titleForGpsAsset(sum.nearest)} · ${this.fmtGpsDistance(sum.nearestM)}`);

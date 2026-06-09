@@ -85,10 +85,12 @@ var LeanMapApp={
     document.getElementById('plusBtn')?.addEventListener('click',()=>this.togglePlusMenu());
     document.getElementById('mapLayerBtn')?.addEventListener('click',()=>MapEngine.cycleBase());
     document.getElementById('nearbyBtn')?.addEventListener('click',()=>MapEngine.showNearbyAssets?.());
-    document.getElementById('gpsFollow')?.addEventListener('click',()=>MapEngine.toggleGpsFollow());
+    document.getElementById('gpsFollow')?.addEventListener('click',()=>MapEngine.locate());
     document.getElementById('gpsPanelCloseBtn')?.addEventListener('click',()=>MapEngine.hideGpsPanel());
-    document.getElementById('gpsFollowModeBtn')?.addEventListener('click',()=>{MapEngine.gpsMode='follow';MapEngine.updateGpsButton();MapEngine.showGpsPanel();MapEngine.startGpsWatch(false);try{localStorage.setItem('fieldMapGpsMode','follow');}catch(e){};UI?.toast?.('GPS follow mode.');});
-    document.getElementById('gpsStopFollowBtn')?.addEventListener('click',()=>MapEngine.stopGpsFollow(true));
+    document.getElementById('gpsPanelMinBtn')?.addEventListener('click',()=>MapEngine.toggleGpsPanelMinimized());
+    document.getElementById('gpsLocateModeBtn')?.addEventListener('click',()=>MapEngine.locate());
+    document.getElementById('gpsFollowModeBtn')?.addEventListener('click',()=>MapEngine.setGpsMode('follow',{toast:true,showPanel:true}));
+    document.getElementById('gpsTrackModeBtn')?.addEventListener('click',()=>MapEngine.setGpsMode('track',{toast:true,showPanel:true}));
     document.querySelectorAll('[data-gps-profile]').forEach(btn=>btn.addEventListener('click',()=>MapEngine.setGpsProfile(btn.dataset.gpsProfile||'walking')));
     document.getElementById('closeCircuitPicker')?.addEventListener('click',()=>this.closeCircuitPicker());
     document.getElementById('loadCircuitBtn')?.addEventListener('click',()=>this.loadSelectedCircuit());
@@ -639,7 +641,7 @@ var LeanMapApp={
     const profile=MapEngine?.gpsProfile||'walking';
     const refsMode=String(MapEngine?.currentDisplay||'').toLowerCase();
     const referenceTools=`<div class="data-card"><b>Reference points</b><p>Show or hide depot and substation reference points without cluttering the main + menu.</p></div><div class="data-action-grid single"><button type="button" class="data-safe-btn ${refsMode==='all substations'?'active':''}" data-tools-reference-kind="substation">${refsMode==='all substations'?'Hide All Substations':'Show All Substations'}</button><button type="button" class="data-safe-btn ${refsMode==='all depots'?'active':''}" data-tools-reference-kind="depot">${refsMode==='all depots'?'Hide All Depots':'Show All Depots'}</button></div>`;
-    const gpsTools=`<div class="data-card"><b>GPS / Patrol mode</b><p>Select how the live GPS panel behaves. Heli mode keeps the map calmer, shows speed in km/h and knots, and keeps nearest/next structure details visible.</p><small>Uses the phone GPS. No separate GPS hardware required.</small></div><div class="gps-tools-grid"><button type="button" class="data-safe-btn ${profile==='walking'?'active':''}" data-tools-gps-profile="walking">Walking</button><button type="button" class="data-safe-btn ${profile==='driving'?'active':''}" data-tools-gps-profile="driving">Driving</button><button type="button" class="data-safe-btn ${profile==='helicopter'?'active':''}" data-tools-gps-profile="helicopter">Helicopter</button></div><div class="data-action-grid single"><button type="button" class="data-safe-btn" data-tools-start-gps="1">Start / show GPS panel</button><button type="button" class="data-safe-btn" data-tools-stop-follow="1">Stop follow only</button></div>`;
+    const gpsTools=`<div class="data-card"><b>GPS / Patrol mode</b><p>Select how the live GPS panel behaves. Heli mode switches to heading-based Tracking/Heli. Follow and Tracking/Heli both let you zoom or pan freely, then snap back after 5 seconds idle.</p><small>Uses the phone GPS. No separate GPS hardware required.</small></div><div class="gps-tools-grid"><button type="button" class="data-safe-btn ${profile==='walking'?'active':''}" data-tools-gps-profile="walking">Walking</button><button type="button" class="data-safe-btn ${profile==='driving'?'active':''}" data-tools-gps-profile="driving">Driving</button><button type="button" class="data-safe-btn ${profile==='helicopter'?'active':''}" data-tools-gps-profile="helicopter">Helicopter</button></div><div class="data-action-grid single"><button type="button" class="data-safe-btn" data-tools-start-gps="1">Start / show GPS panel</button><button type="button" class="data-safe-btn" data-tools-stop-follow="1">GPS locate / free scroll</button></div>`;
     const crossingTools=`<div class="data-card"><b>HV / TX crossings</b><p>${Number(xs.total||0).toLocaleString()} imported · ${Number(xs.active||0).toLocaleString()} currently shown${line?` · current: ${UI.esc(line)}`:''}</p><small>Separate sidecar layer only. Does not enter pole/tower assets or search.</small></div><div class="data-action-grid single"><button type="button" class="data-safe-btn" data-tools-show-current-crossings="1">Show current circuit crossings</button><button type="button" class="data-safe-btn" data-tools-show-view-crossings="1">Show crossings in map view</button><button type="button" class="data-safe-btn" data-tools-hide-crossings="1">Hide crossings</button></div>`;
     body.innerHTML=`${this.toolsSectionHtml('toolsReferences','Reference points',referenceTools,refsMode==='all substations'?'Substations shown':(refsMode==='all depots'?'Depots shown':'Closed'),false)}${this.toolsSectionHtml('toolsGps','GPS / Patrol mode',gpsTools,MapEngine?.gpsProfileLabel?.()||'Walking',false)}${this.toolsSectionHtml('toolsCrossings','HV / TX crossings',crossingTools,`${Number(xs.total||0).toLocaleString()} imported`,false)}`;
     if(preserveScroll&&wrap){requestAnimationFrame(()=>{wrap.scrollTop=keep;});}
@@ -659,7 +661,7 @@ var LeanMapApp={
     const startGps=e.target.closest?.('button[data-tools-start-gps]');
     if(startGps){e.preventDefault();MapEngine?.showGpsPanel?.();MapEngine?.startGpsWatch?.(false);return;}
     const stopFollow=e.target.closest?.('button[data-tools-stop-follow]');
-    if(stopFollow){e.preventDefault();MapEngine?.stopGpsFollow?.(true);this.renderToolsPanel(true);return;}
+    if(stopFollow){e.preventDefault();MapEngine?.locate?.();this.renderToolsPanel(true);return;}
     const showCur=e.target.closest?.('button[data-tools-show-current-crossings]');
     if(showCur){e.preventDefault();HVCrossingsLayer?.showForCircuit?.(MapEngine?.currentCircuit||'').then(()=>this.renderToolsPanel(true));return;}
     const showView=e.target.closest?.('button[data-tools-show-view-crossings]');

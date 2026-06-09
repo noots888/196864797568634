@@ -1,5 +1,5 @@
 var App={
-  version:'mymap-v3-1-90_NAME_ICON',
+  version:'mymap-v3-1-92_GPS_MODES',
   versionShort:'myMap' ,
   baseLock:{name:'myMap',intent:'Builds connected circuit paths from exact imported line/nameplate references, not guessed route stubs or hardcoded data.'},
   schema:{parser:'map-app-v3-1-4-parser-v13-material-category-v1',database:'file-chunk-v2',searchIndex:'pass10-reference-recovery-v2-polepath-only',spatialIndex:'grid-v1'},
