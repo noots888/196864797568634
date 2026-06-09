@@ -5,11 +5,11 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#1f3b25">
   <title>myMap</title>
-  <link rel="manifest" href="manifest.json?v=mymap-v3-1-90_name_icon">
-  <link rel="icon" type="image/png" href="icons/favicon.png?v=mymap-v3-1-90_name_icon">
-  <link rel="apple-touch-icon" href="icons/icon-192.png?v=mymap-v3-1-90_name_icon">
+  <link rel="manifest" href="manifest.json?v=mymap-v3-1-92_gps_modes">
+  <link rel="icon" type="image/png" href="icons/favicon.png?v=mymap-v3-1-92_gps_modes">
+  <link rel="apple-touch-icon" href="icons/icon-192.png?v=mymap-v3-1-92_gps_modes">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-  <link rel="stylesheet" href="css/lean-engine.css?v=mymap-v3-1-90_name_icon">
+  <link rel="stylesheet" href="css/lean-engine.css?v=mymap-v3-1-92_gps_modes">
 </head>
 <body>
   <div id="map"></div>
@@ -29,7 +29,10 @@
   <section id="gpsPatrolPanel" class="gps-patrol-panel hidden" aria-live="polite">
     <div class="gps-patrol-head">
       <div><b id="gpsProfileLabel">GPS</b><span id="gpsStatus">GPS —</span></div>
-      <button id="gpsPanelCloseBtn" type="button" aria-label="Hide GPS panel">×</button>
+      <div class="gps-panel-head-actions">
+        <button id="gpsPanelMinBtn" type="button" aria-label="Minimise GPS panel">−</button>
+        <button id="gpsPanelCloseBtn" type="button" aria-label="Hide GPS panel">×</button>
+      </div>
     </div>
     <div class="gps-mode-strip" role="group" aria-label="GPS movement profile">
       <button type="button" data-gps-profile="walking">Walk</button>
@@ -47,9 +50,10 @@
       <div><span>Next</span><b id="gpsNextValue">—</b></div>
       <div><span>Circuit</span><b id="gpsCircuitValue">—</b></div>
     </div>
-    <div class="gps-panel-actions">
+    <div class="gps-panel-actions gps-panel-actions-three">
+      <button id="gpsLocateModeBtn" type="button">Locate</button>
       <button id="gpsFollowModeBtn" type="button">Follow</button>
-      <button id="gpsStopFollowBtn" type="button">Stop follow</button>
+      <button id="gpsTrackModeBtn" type="button">Tracking/Heli</button>
     </div>
   </section>
 
@@ -167,17 +171,17 @@
   </section>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="js/lean-app-core.js?v=mymap-v3-1-90_name_icon"></script>
-  <script src="js/diagnostics.js?v=mymap-v3-1-90_name_icon"></script>
-  <script src="js/lean-engine-stubs.js?v=mymap-v3-1-90_name_icon"></script>
-  <script src="js/storage-engine.js?v=mymap-v3-1-90_name_icon"></script>
-  <script src="js/import-engine.js?v=mymap-v3-1-90_name_icon"></script>
-  <script src="js/conductor-data-loader.js?v=mymap-v3-1-90_name_icon"></script>
-  <script src="js/search-engine.js?v=mymap-v3-1-90_name_icon"></script>
-  <script src="js/span-weight-calculator.js?v=mymap-v3-1-90_name_icon"></script>
-  <script src="js/popup-engine.js?v=mymap-v3-1-90_name_icon"></script>
-  <script src="js/map-engine.js?v=mymap-v3-1-90_name_icon"></script>
-  <script src="js/hv-crossings-layer.js?v=mymap-v3-1-90_name_icon"></script>
-  <script src="js/lean-map-app.js?v=mymap-v3-1-90_name_icon"></script>
+  <script src="js/lean-app-core.js?v=mymap-v3-1-92_gps_modes"></script>
+  <script src="js/diagnostics.js?v=mymap-v3-1-92_gps_modes"></script>
+  <script src="js/lean-engine-stubs.js?v=mymap-v3-1-92_gps_modes"></script>
+  <script src="js/storage-engine.js?v=mymap-v3-1-92_gps_modes"></script>
+  <script src="js/import-engine.js?v=mymap-v3-1-92_gps_modes"></script>
+  <script src="js/conductor-data-loader.js?v=mymap-v3-1-92_gps_modes"></script>
+  <script src="js/search-engine.js?v=mymap-v3-1-92_gps_modes"></script>
+  <script src="js/span-weight-calculator.js?v=mymap-v3-1-92_gps_modes"></script>
+  <script src="js/popup-engine.js?v=mymap-v3-1-92_gps_modes"></script>
+  <script src="js/map-engine.js?v=mymap-v3-1-92_gps_modes"></script>
+  <script src="js/hv-crossings-layer.js?v=mymap-v3-1-92_gps_modes"></script>
+  <script src="js/lean-map-app.js?v=mymap-v3-1-92_gps_modes"></script>
 </body>
 </html>
