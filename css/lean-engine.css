@@ -486,14 +486,25 @@ html,body,#map{height:100dvh;min-height:100%;}
 .gps-nearest-ping-btn:active,.gps-nearest-ping-btn.pinging{transform:translateY(1px);box-shadow:inset 0 2px 5px rgba(0,0,0,.22),0 1px 4px rgba(0,0,0,.16)}
 .gps-nearest-ping-btn:disabled{opacity:.48;background:linear-gradient(180deg,#eadfc5,#cbbd9c);color:#65725c;box-shadow:none}
 .gps-ping-leaflet-icon{background:transparent!important;border:0!important}
-.gps-ping-marker{position:relative;width:66px;height:66px;border-radius:999px;pointer-events:none;filter:drop-shadow(0 4px 10px rgba(0,0,0,.34))}
-.gps-ping-marker:before,.gps-ping-marker:after{content:"";position:absolute;border-radius:999px;left:12px;top:12px;right:12px;bottom:12px;border:5px solid #ff8a00;box-shadow:0 0 0 4px rgba(255,255,255,.95);animation:gpsPingPulse 1.1s ease-out infinite}
-.gps-ping-marker:after{left:24px;right:24px;top:24px;bottom:24px;background:#ff8a00;border:4px solid #fff;animation:none;box-shadow:0 2px 8px rgba(0,0,0,.38)}
-.gps-ping-marker span{position:absolute;inset:3px;border-radius:999px;border:4px solid rgba(255,138,0,.46);animation:gpsPingOuter 1.6s ease-out infinite}
-.gps-ping-marker i{position:absolute;left:50%;top:0;bottom:0;width:3px;background:linear-gradient(180deg,transparent 0 34%,rgba(31,59,37,.78) 34% 66%,transparent 66%);transform:translateX(-50%)}
-.gps-ping-marker i:after{content:"";position:absolute;left:-31px;right:-31px;top:50%;height:3px;background:linear-gradient(90deg,transparent 0 34%,rgba(31,59,37,.78) 34% 66%,transparent 66%);transform:translateY(-50%)}
+.gps-ping-marker{position:relative;width:78px;height:78px;border-radius:999px;pointer-events:none;filter:drop-shadow(0 4px 12px rgba(0,0,0,.38))}
+.gps-ping-marker:before,.gps-ping-marker:after{content:"";position:absolute;border-radius:999px;left:14px;top:14px;right:14px;bottom:14px;border:6px solid #f07800;box-shadow:0 0 0 5px rgba(255,250,240,.96),0 0 18px rgba(240,120,0,.42);animation:gpsPingPulse 1.1s ease-out infinite}
+.gps-ping-marker:after{left:30px;right:30px;top:30px;bottom:30px;background:#f07800;border:4px solid #fffaf0;animation:none;box-shadow:0 2px 9px rgba(0,0,0,.42)}
+.gps-ping-marker span{position:absolute;inset:2px;border-radius:999px;border:5px solid rgba(240,120,0,.48);animation:gpsPingOuter 1.55s ease-out infinite}
+.gps-ping-marker i{position:absolute;left:50%;top:2px;bottom:2px;width:3px;background:linear-gradient(180deg,transparent 0 32%,rgba(31,59,37,.82) 32% 68%,transparent 68%);transform:translateX(-50%)}
+.gps-ping-marker i:after{content:"";position:absolute;left:-37px;right:-37px;top:50%;height:3px;background:linear-gradient(90deg,transparent 0 32%,rgba(31,59,37,.82) 32% 68%,transparent 68%);transform:translateY(-50%)}
 @keyframes gpsPingPulse{0%{transform:scale(.65);opacity:1}70%{transform:scale(1.18);opacity:.42}100%{transform:scale(1.32);opacity:0}}
 @keyframes gpsPingOuter{0%{transform:scale(.42);opacity:.85}100%{transform:scale(1.38);opacity:0}}
+
+/* Heading-up GPS rotation. Map panes rotate visually; app controls stay fixed. */
+.leaflet-container.map-heading-up .leaflet-tile-pane,
+.leaflet-container.map-heading-up .leaflet-overlay-pane,
+.leaflet-container.map-heading-up .leaflet-shadow-pane,
+.leaflet-container.map-heading-up .leaflet-marker-pane,
+.leaflet-container.map-heading-up .leaflet-tooltip-pane,
+.leaflet-container.map-heading-up .leaflet-popup-pane{transition:transform .34s linear;backface-visibility:hidden}
+.leaflet-container.map-heading-up .leaflet-popup-content-wrapper{transform:rotate(var(--map-counter-rotation,0deg));transform-origin:center center}
+.leaflet-container.map-heading-up .leaflet-popup-tip-container{transform:rotate(var(--map-counter-rotation,0deg));transform-origin:top center}
+.leaflet-container.map-heading-up .gps-ping-leaflet-icon .gps-ping-marker{transform:rotate(var(--map-counter-rotation,0deg));transform-origin:center center}
 .gps-panel-actions{display:grid;grid-template-columns:1fr 1fr;gap:7px}
 .gps-panel-actions.gps-panel-actions-three{grid-template-columns:0.85fr 0.85fr 1.3fr}
 .gps-panel-actions button{min-height:42px;background:var(--field-sand);color:var(--field-green)}
