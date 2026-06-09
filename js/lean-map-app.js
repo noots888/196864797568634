@@ -23,7 +23,7 @@ var LeanMapApp={
     try{
       this.bind();
       await this.clearOldShellCache();
-      UI.progress(true,'Starting Map_APP-V3.1.87_KXKK_ICON…','Loading core map',8);
+      UI.progress(true,'Starting myMap…','Loading core map',8);
       if(window.FieldMapConductorDataLoader?.ready){
         UI.progress(true,'Loading conductor reference…','Reading saved conductor JSON if loaded',12);
         await window.FieldMapConductorDataLoader.ready;
@@ -54,19 +54,15 @@ var LeanMapApp={
     catch(e){}
   },
   updateReferenceToggleButtons(){
-    const subBtn=document.getElementById('showAllSubstationsBtn');
-    const depotBtn=document.getElementById('showAllDepotsBtn');
     const mode=String(MapEngine?.currentDisplay||'').toLowerCase();
-    if(subBtn){
-      const active=mode==='all substations';
-      subBtn.textContent=active?'Hide All Substations':'Show All Substations';
-      subBtn.classList.toggle('active',active);
-    }
-    if(depotBtn){
-      const active=mode==='all depots';
-      depotBtn.textContent=active?'Hide All Depots':'Show All Depots';
-      depotBtn.classList.toggle('active',active);
-    }
+    const sync=(selector,activeText,inactiveText,active)=>{
+      document.querySelectorAll(selector).forEach(btn=>{
+        btn.textContent=active?activeText:inactiveText;
+        btn.classList.toggle('active',!!active);
+      });
+    };
+    sync('#showAllSubstationsBtn,[data-tools-reference-kind="substation"]','Hide All Substations','Show All Substations',mode==='all substations');
+    sync('#showAllDepotsBtn,[data-tools-reference-kind="depot"]','Hide All Depots','Show All Depots',mode==='all depots');
   },
   async toggleReferencePoints(kind='substation'){
     const want=String(kind||'substation').toLowerCase()==='depot'?'depot':'substation';
@@ -87,6 +83,8 @@ var LeanMapApp={
   bind(){
     document.getElementById('magnifyBtn')?.addEventListener('click',()=>this.toggleCircuitPicker());
     document.getElementById('plusBtn')?.addEventListener('click',()=>this.togglePlusMenu());
+    document.getElementById('mapLayerBtn')?.addEventListener('click',()=>MapEngine.cycleBase());
+    document.getElementById('nearbyBtn')?.addEventListener('click',()=>MapEngine.showNearbyAssets?.());
     document.getElementById('gpsFollow')?.addEventListener('click',()=>MapEngine.toggleGpsFollow());
     document.getElementById('gpsPanelCloseBtn')?.addEventListener('click',()=>MapEngine.hideGpsPanel());
     document.getElementById('gpsFollowModeBtn')?.addEventListener('click',()=>{MapEngine.gpsMode='follow';MapEngine.updateGpsButton();MapEngine.showGpsPanel();MapEngine.startGpsWatch(false);try{localStorage.setItem('fieldMapGpsMode','follow');}catch(e){};UI?.toast?.('GPS follow mode.');});
@@ -393,7 +391,7 @@ var LeanMapApp={
   renderConductorMaterialBrowser(groups=[]){
     const defs=this.materialDefinitions();
     const types=this.conductorMaterialCounts(groups);
-    if(!types.length)return '<div class="empty-card"><b>No conductor reference loaded</b><span>Tap Import in the Conductors title and select the separate Map_APP conductor JSON file.</span></div>';
+    if(!types.length)return '<div class="empty-card"><b>No conductor reference loaded</b><span>Tap Import in the Conductors title and select the separate myMap conductor JSON file.</span></div>';
     if(this.conductorMaterialFilter&&!types.some(t=>t.type===this.conductorMaterialFilter))this.conductorMaterialFilter='';
     const cards=`<div class="conductor-type-grid">${types.map(t=>{const active=t.type===this.conductorMaterialFilter;return `<button type="button" class="type-chip ${active?'active':''}" data-cond-material="${UI.esc(t.type)}"><b>${UI.esc(t.type)}</b><span>${t.count.toLocaleString()} conductor${t.count===1?'':'s'} · ${t.sections.toLocaleString()} sections</span></button>${active?this.renderConductorInlineDetail(t,defs,'material'):''}`;}).join('')}</div>`;
     return cards;
@@ -431,7 +429,7 @@ var LeanMapApp={
   renderConductorTypeBrowser(groups=[]){
     const defs=this.conductorDefinitions();
     const types=this.conductorTypeCounts(groups);
-    if(!types.length)return '<div class="empty-card"><b>No conductor reference loaded</b><span>Tap Import in the Conductors title and select the separate Map_APP conductor JSON file.</span></div>';
+    if(!types.length)return '<div class="empty-card"><b>No conductor reference loaded</b><span>Tap Import in the Conductors title and select the separate myMap conductor JSON file.</span></div>';
     if(this.conductorTypeFilter&&!types.some(t=>t.type===this.conductorTypeFilter))this.conductorTypeFilter='';
     const cards=`<div class="conductor-type-grid">${types.map(t=>{const active=t.type===this.conductorTypeFilter;return `<button type="button" class="type-chip ${active?'active':''}" data-cond-type="${UI.esc(t.type)}"><b>${UI.esc(t.type)}</b><span>${t.count.toLocaleString()} conductor${t.count===1?'':'s'} · ${t.sections.toLocaleString()} sections</span></button>${active?this.renderConductorInlineDetail(t,defs,'type'):''}`;}).join('')}</div>`;
     return cards;
@@ -443,7 +441,7 @@ var LeanMapApp={
   },
   renderConductorNameBrowser(groups=[]){
     const names=this.conductorNameGroups(groups);
-    if(!names.length)return '<div class="empty-card"><b>No conductor reference loaded</b><span>Tap Import in the Conductors title and select the separate Map_APP conductor JSON file.</span></div>';
+    if(!names.length)return '<div class="empty-card"><b>No conductor reference loaded</b><span>Tap Import in the Conductors title and select the separate myMap conductor JSON file.</span></div>';
     if(this.conductorNameFilter&&!names.some(n=>n.key===this.conductorNameFilter))this.conductorNameFilter='';
     const cards=`<div class="conductor-type-grid conductor-name-grid conductor-name-scroll">${names.map(n=>{const active=n.key===this.conductorNameFilter;return `<button type="button" class="type-chip conductor-name-chip ${active?'active':''}" data-cond-name="${UI.esc(n.key)}"><b>${UI.esc(n.name)}</b><span>${n.count.toLocaleString()} entr${n.count===1?'y':'ies'} · ${n.sections.toLocaleString()} sections</span></button>${active?this.renderConductorNameInlineDetail(n):''}`;}).join('')}</div>`;
     return cards;
@@ -602,6 +600,7 @@ var LeanMapApp={
     document.getElementById('statusPanel')?.classList.add('hidden');
     this.closeConductorsPanel();
     this.closeResetPanel();
+    this.toolsSectionOpen={};
     document.getElementById('toolsPanel')?.classList.remove('hidden');
     this.renderToolsPanel();
   },
@@ -638,9 +637,11 @@ var LeanMapApp={
     const xs=HVCrossingsLayer?.stats?.()||{total:0,hv:0,tx:0,active:0,line:''};
     const line=HVCrossingsLayer?.currentLineLabel?.()||MapEngine?.currentCircuit||'';
     const profile=MapEngine?.gpsProfile||'walking';
+    const refsMode=String(MapEngine?.currentDisplay||'').toLowerCase();
+    const referenceTools=`<div class="data-card"><b>Reference points</b><p>Show or hide depot and substation reference points without cluttering the main + menu.</p></div><div class="data-action-grid single"><button type="button" class="data-safe-btn ${refsMode==='all substations'?'active':''}" data-tools-reference-kind="substation">${refsMode==='all substations'?'Hide All Substations':'Show All Substations'}</button><button type="button" class="data-safe-btn ${refsMode==='all depots'?'active':''}" data-tools-reference-kind="depot">${refsMode==='all depots'?'Hide All Depots':'Show All Depots'}</button></div>`;
     const gpsTools=`<div class="data-card"><b>GPS / Patrol mode</b><p>Select how the live GPS panel behaves. Heli mode keeps the map calmer, shows speed in km/h and knots, and keeps nearest/next structure details visible.</p><small>Uses the phone GPS. No separate GPS hardware required.</small></div><div class="gps-tools-grid"><button type="button" class="data-safe-btn ${profile==='walking'?'active':''}" data-tools-gps-profile="walking">Walking</button><button type="button" class="data-safe-btn ${profile==='driving'?'active':''}" data-tools-gps-profile="driving">Driving</button><button type="button" class="data-safe-btn ${profile==='helicopter'?'active':''}" data-tools-gps-profile="helicopter">Helicopter</button></div><div class="data-action-grid single"><button type="button" class="data-safe-btn" data-tools-start-gps="1">Start / show GPS panel</button><button type="button" class="data-safe-btn" data-tools-stop-follow="1">Stop follow only</button></div>`;
     const crossingTools=`<div class="data-card"><b>HV / TX crossings</b><p>${Number(xs.total||0).toLocaleString()} imported · ${Number(xs.active||0).toLocaleString()} currently shown${line?` · current: ${UI.esc(line)}`:''}</p><small>Separate sidecar layer only. Does not enter pole/tower assets or search.</small></div><div class="data-action-grid single"><button type="button" class="data-safe-btn" data-tools-show-current-crossings="1">Show current circuit crossings</button><button type="button" class="data-safe-btn" data-tools-show-view-crossings="1">Show crossings in map view</button><button type="button" class="data-safe-btn" data-tools-hide-crossings="1">Hide crossings</button></div>`;
-    body.innerHTML=`${this.toolsSectionHtml('toolsGps','GPS / Patrol mode',gpsTools,MapEngine?.gpsProfileLabel?.()||'Walking',true)}${this.toolsSectionHtml('toolsCrossings','HV / TX crossings',crossingTools,`${Number(xs.total||0).toLocaleString()} imported`,true)}`;
+    body.innerHTML=`${this.toolsSectionHtml('toolsReferences','Reference points',referenceTools,refsMode==='all substations'?'Substations shown':(refsMode==='all depots'?'Depots shown':'Closed'),false)}${this.toolsSectionHtml('toolsGps','GPS / Patrol mode',gpsTools,MapEngine?.gpsProfileLabel?.()||'Walking',false)}${this.toolsSectionHtml('toolsCrossings','HV / TX crossings',crossingTools,`${Number(xs.total||0).toLocaleString()} imported`,false)}`;
     if(preserveScroll&&wrap){requestAnimationFrame(()=>{wrap.scrollTop=keep;});}
   },
   toolsSectionHtml(key,title,body,sub='',defaultOpen=false){
@@ -648,9 +649,11 @@ var LeanMapApp={
     const open=has?!!this.toolsSectionOpen[key]:!!defaultOpen;
     return `<div class="data-section collapsible-section"><button type="button" class="section-toggle" data-tools-section-key="${UI.esc(key)}"><span class="pm-box">${open?'−':'+'}</span><span><b>${UI.esc(title)}</b>${sub?`<small>${UI.esc(sub)}</small>`:''}</span></button>${open?`<div class="section-drop">${body}</div>`:''}</div>`;
   },
-  handleToolsClick(e){
+  async handleToolsClick(e){
     const section=e.target.closest?.('button[data-tools-section-key]');
     if(section){e.preventDefault();try{document.activeElement?.blur?.();}catch(_e){}const key=section.dataset.toolsSectionKey||'';this.toolsSectionOpen[key]=!this.toolsSectionOpen[key];this.renderToolsPanel(true);return;}
+    const ref=e.target.closest?.('button[data-tools-reference-kind]');
+    if(ref){e.preventDefault();await this.toggleReferencePoints(ref.dataset.toolsReferenceKind||'substation');this.renderToolsPanel(true);return;}
     const prof=e.target.closest?.('button[data-tools-gps-profile]');
     if(prof){e.preventDefault();MapEngine?.setGpsProfile?.(prof.dataset.toolsGpsProfile||'walking');this.renderToolsPanel(true);return;}
     const startGps=e.target.closest?.('button[data-tools-start-gps]');
@@ -667,7 +670,7 @@ var LeanMapApp={
   async deleteImportedFileFromManager(name=''){
     name=String(name||'').trim();
     if(!name)return;
-    if(!confirm(`Delete imported file?\n\n${name}\n\nThis removes its saved records from Map_APP. Other files stay.`))return;
+    if(!confirm(`Delete imported file?\n\n${name}\n\nThis removes its saved records from myMap. Other files stay.`))return;
     try{
       UI.progress(true,'Deleting imported file…',name,10);
       const res=await ImportEngine.deleteImportedFile(name,{skipUi:true});
@@ -693,11 +696,11 @@ var LeanMapApp={
     }catch(err){UI.progress(false);Diagnostics.capture(err);UI.toast('Clear cache failed.');}
   },
   async resetApp(){
-    if(!confirm('RESET Map_APP?\n\nThis deletes every imported file, saved asset, local database record, cache, and displayed map dot. This cannot be undone.'))return;
+    if(!confirm('RESET myMap?\n\nThis deletes every imported file, saved asset, local database record, cache, and displayed map dot. This cannot be undone.'))return;
     const typed=prompt('Type RESET to delete everything imported and clear the app cache.');
     if(String(typed||'').trim().toUpperCase()!=='RESET'){UI.toast('Reset cancelled.');return;}
     try{
-      UI.progress(true,'Resetting Map_APP…','Deleting imported data and app cache',10);
+      UI.progress(true,'Resetting myMap…','Deleting imported data and app cache',10);
       try{MapEngine.clearDisplay(false);}catch(e){}
       try{await StorageEngine.clear();}catch(e){}
       try{if(StorageEngine.db){StorageEngine.db.close();StorageEngine.db=null;}}catch(e){}

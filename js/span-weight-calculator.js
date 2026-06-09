@@ -1,4 +1,4 @@
-/* Map_APP Span Weight + Pull / Unload Calculator · V3.1.57
+/* myMap Span Weight + Pull / Unload Calculator · V3.1.57
    Adds load selector: phase conductor / twin phase conductor / earth wire / all conductors.
    Adds task selector: start moving conductor vs unload/lift insulator string.
    Final conductor/calculator pass: keeps calculators separated, adds cached conductor/line lookups,

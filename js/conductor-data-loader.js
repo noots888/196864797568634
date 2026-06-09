@@ -1,4 +1,4 @@
-/* Map_APP-V3.1.57 conductor data loader
+/* myMap-V3.1.57 conductor data loader
    Conductor reference data is loaded from a user-selected JSON file and saved locally.
    It is not embedded in JavaScript and is not auto-restored after Reset app. */
 (function(){

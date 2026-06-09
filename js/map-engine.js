@@ -16,7 +16,7 @@ const MapEngine={
     this.map.on('popupclose',()=>{try{this.map.dragging.enable();}catch(e){}});
     this.map.on('zoomend',()=>this.onZoomDensityChange());
     this.loadGpsProfile();
-    setTimeout(()=>{this.updateGpsButton();this.updateGpsProfileButtons();},50);
+    setTimeout(()=>{this.updateGpsButton();this.updateGpsProfileButtons();this.updateMapLayerButton?.();},50);
     setTimeout(()=>this.map.invalidateSize(),250);
     // Gutted UI: do not auto-start GPS on boot. User taps + > GPS mode when needed.
   },
@@ -92,8 +92,24 @@ const MapEngine={
     this.base=wanted;
     this.satellite=wanted==='satellite';
     document.querySelectorAll('[data-base-layer]').forEach(btn=>btn.classList.toggle('active',btn.dataset.baseLayer===wanted));
+    this.updateMapLayerButton?.();
     const label={street:'Street map',satellite:'Satellite',topo:'Topo'}[wanted]||wanted;
     UI?.toast?.(`${label} layer on`);
+  },
+  updateMapLayerButton(){
+    const btn=document.getElementById('mapLayerBtn');
+    const lab=document.getElementById('mapLayerLabel');
+    const base=this.base||'street';
+    const short={street:'MAP',satellite:'SAT',topo:'TOPO'}[base]||'MAP';
+    const long={street:'Street',satellite:'Satellite',topo:'Topo'}[base]||'Map';
+    if(lab)lab.textContent=short;
+    if(btn){
+      btn.title=`Map layer: ${long}`;
+      btn.setAttribute('aria-label',`Map layer: ${long}. Tap to change.`);
+      btn.dataset.baseLayer=base;
+      btn.classList.toggle('satellite-active',base==='satellite');
+      btn.classList.toggle('topo-active',base==='topo');
+    }
   },
   cycleBase(){
     const order=['street','satellite','topo'];
@@ -1793,6 +1809,42 @@ const MapEngine={
       }
     }catch(err){Diagnostics?.log?.("What's here utility preview failed",String(err?.message||err));}
     return assetCount;
+  },
+  async showNearbyAssets(){
+    if(!this.map){UI.toast('Map not ready.');return 0;}
+    const zoom=Number(this.map.getZoom?.()||0);
+    const minZoom=14;
+    if(!Number.isFinite(zoom)||zoom<minZoom){
+      UI.toast(`Zoom in closer to use Nearby assets. Minimum zoom ${minZoom}.`);
+      return 0;
+    }
+    const b=this.map.getBounds?.();
+    if(!b){UI.toast('Map view not ready.');return 0;}
+    const raw=(SearchEngine?.assetsInBounds?SearchEngine.assetsInBounds(b):(App.assets||[]).filter(a=>Number.isFinite(Number(a?.lat))&&Number.isFinite(Number(a?.lon))&&b.contains([a.lat,a.lon])));
+    const visible=[]; const hidden=[]; const seen=new Set();
+    for(const a of raw||[]){
+      if(!a||a.kind==='circuit'||UtilitiesEngine?.isUtility?.(a))continue;
+      if(!Number.isFinite(Number(a.lat))||!Number.isFinite(Number(a.lon)))continue;
+      const id=SearchEngine?.assetStableId?SearchEngine.assetStableId(a):String(a.id||a.assetId||`${a.lat},${a.lon},${a.label||''}`);
+      if(seen.has(id))continue; seen.add(id);
+      if(SearchEngine?.passesFilters?SearchEngine.passesFilters(a):true)visible.push(a); else hidden.push(a);
+    }
+    if(!visible.length){
+      UI.toast(hidden.length?`No visible nearby assets. ${hidden.length.toLocaleString()} hidden by filters.`:'No nearby mapped assets in this view.');
+      return 0;
+    }
+    const hardLimit=650;
+    if(visible.length>hardLimit){
+      UI.toast(`Too many nearby assets (${visible.length.toLocaleString()}). Zoom in closer.`);
+      return 0;
+    }
+    const centre=this.map.getCenter?.();
+    const list=centre?visible.slice().sort((a,b)=>this.distanceM({lat:centre.lat,lon:centre.lng},a)-this.distanceM({lat:centre.lat,lon:centre.lng},b)):visible;
+    const count=await this.drawAssets(list,'current map view',false,{viewportFirst:true});
+    this.currentDisplay='nearby assets';
+    UI.refreshCounts?.();
+    UI.toast(`Nearby assets: ${Number(count||0).toLocaleString()} shown${hidden.length?` · ${hidden.length.toLocaleString()} hidden by filters`:''}.`);
+    return count;
   },
   async revealCurrentView(includeHidden=false,opts={}){
     if(!this.map){UI.toast('Map not ready.');return 0;}

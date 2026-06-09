@@ -124,7 +124,7 @@ const ImportEngine={
     App.indexHealth=App.indexHealth||{mode:'file-level',queue:[],files:[]};
     App.indexHealth.queue=list.map((f,idx)=>({name:f.name,size:f.size,status:'queued',position:idx+1,parserVersion:this.parserVersion,queuedAt:new Date().toISOString()}));
     UI.renderImportQueue?.(list,'Queued for sequential import');
-    UI.progress(true,bundleImport?'Map_APP bundle import…':'Import queue…',`${list.length} file(s) queued · ${this.formatBytes(totalBytes)} total · ${bundleImport?'substations/depots → structures → conductors':'sequential safe mode'}`,2);
+    UI.progress(true,bundleImport?'myMap bundle import…':'Import queue…',`${list.length} file(s) queued · ${this.formatBytes(totalBytes)} total · ${bundleImport?'substations/depots → structures → conductors':'sequential safe mode'}`,2);
     if(list.length>=6){
       UI.toast?.('Mobile safe mode: 6+ files queued. Large background files are kept out of the main asset search.');
     }
@@ -320,7 +320,7 @@ const ImportEngine={
     if(changedCoreFiles&&(deferFileIndex||conductorSpanCount)){
       UI.progress(true,bundleImport?'Final bundle rebuild…':'Linking conductor data…',conductorSpanCount?`${conductorSpanCount.toLocaleString()} conductor span records found · linking to poles/towers by circuit and nameplate range`:'Building one final search index after bundle import',94);
       try{
-        if(SearchEngine?.rebuildAsync)await SearchEngine.rebuildAsync(bundleImport?'Map_APP bundle rebuild':'Conductor link rebuild');
+        if(SearchEngine?.rebuildAsync)await SearchEngine.rebuildAsync(bundleImport?'myMap bundle rebuild':'Conductor link rebuild');
         else SearchEngine?.rebuild?.();
         for(const m of meta){ if(m&&!m.skippedUnchanged){ m.indexStatus='active'; m.indexResult={bundleRebuild:true}; this.setIndexHealthFile(m.name,{status:'active',indexFinishedAt:new Date().toISOString(),indexResult:{bundleRebuild:true}}); } }
       }
@@ -471,8 +471,8 @@ const ImportEngine={
   async importFieldMapBundleSet(files){
     const expanded=await this.expandBundleSelection(files);
     const sorted=this.sortFieldMapBundleFiles(expanded);
-    if(!sorted.length)throw new Error('No Map_APP bundle files selected.');
-    UI.renderImportQueue?.(sorted,'Map_APP bundle order');
+    if(!sorted.length)throw new Error('No myMap bundle files selected.');
+    UI.renderImportQueue?.(sorted,'myMap bundle order');
     UI.toast?.(`Bundle order: ${this.bundleOrderSummary(sorted)}`);
     return this.importFiles(sorted,{bundleImport:true,deferFileIndex:true});
   },
@@ -1645,7 +1645,7 @@ const ImportEngine={
   },
   isAssetOnlyFile(fileName=''){
     const f=String(fileName||'').toUpperCase();
-    // These are real Map_APP asset layers. They must never be diverted into the
+    // These are real myMap asset layers. They must never be diverted into the
     // lazy utility store just because an attribute contains words such as cable,
     // kV, network, or electrical. Keeping them as normal searchable assets also
     // stops the popup from trying to load a phantom utility store for transformer files.

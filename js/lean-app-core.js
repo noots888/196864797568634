@@ -1,7 +1,7 @@
 var App={
-  version:'map-app-v3-1-87_KXKK_ICON',
-  versionShort:'Map_APP-V3.1.87_KXKK_ICON' ,
-  baseLock:{name:'Map_APP-V3.1.87_KXKK_ICON',intent:'Builds connected circuit paths from exact imported line/nameplate references, not guessed route stubs or hardcoded data.'},
+  version:'mymap-v3-1-90_NAME_ICON',
+  versionShort:'myMap' ,
+  baseLock:{name:'myMap',intent:'Builds connected circuit paths from exact imported line/nameplate references, not guessed route stubs or hardcoded data.'},
   schema:{parser:'map-app-v3-1-4-parser-v13-material-category-v1',database:'file-chunk-v2',searchIndex:'pass10-reference-recovery-v2-polepath-only',spatialIndex:'grid-v1'},
   assets:[],files:[],utilityAssets:[],utilityLoaded:false,utilityLoadKey:'',lastImport:null,drawnMarkers:0,selectedAsset:null,safeMode:false,buildInfo:null,dbMeta:null,dbNeedsRebuild:false,indexHealth:{mode:'file-level',queue:[],files:[],current:null,lastFullRebuild:null},
   settings:{areaRevealLimit:5000},
