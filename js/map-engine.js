@@ -1,5 +1,5 @@
 const MapEngine={
-  map:null, layers:{}, markerLayer:null, routeLayer:null, connectedLineLayer:null, utilityLayer:null, userMarker:null, gpsWatchId:null, gpsMode:'free', gpsProfile:'walking', gpsLast:null, gpsError:false, base:'street', satellite:false, drawing:false, drawToken:0, mapRenderer:null, currentDisplay:'none', currentCircuit:null, currentCircuits:[], currentCircuitRoutes:[], lastFullCircuitAssets:[], lastFullCircuitLabel:'', circuitDensityMode:'', gpsNearestCache:null, gpsPanelHidden:false, gpsPanelMinimized:false, gpsPendingLocateOnce:false, gpsInteractionTimer:null, gpsPingMarker:null, gpsPingTimer:null, gpsLastRaw:null, mapRotationDeg:0, _mapHeadingUsed:NaN, _mapRotationSmoothed:NaN, _gpsUserMoving:false, _gpsSuspendUntil:0, _gpsProgrammaticMoveUntil:0, _gpsTrackCenter:null, _gpsLastLookaheadHeading:NaN, _lastGpsViewAt:0,
+  map:null, layers:{}, markerLayer:null, routeLayer:null, connectedLineLayer:null, utilityLayer:null, userMarker:null, gpsWatchId:null, gpsMode:'free', gpsProfile:'walking', gpsLast:null, gpsError:false, base:'street', satellite:false, drawing:false, drawToken:0, mapRenderer:null, currentDisplay:'none', currentCircuit:null, currentCircuits:[], currentCircuitRoutes:[], lastFullCircuitAssets:[], lastFullCircuitLabel:'', circuitDensityMode:'', gpsNearestCache:null, gpsPanelHidden:false, gpsPanelMinimized:false, gpsPendingLocateOnce:false, gpsInteractionTimer:null, gpsPingMarker:null, gpsPingTimer:null, gpsLastRaw:null, gpsRotateHeading:false, mapRotationDeg:0, _mapHeadingUsed:NaN, _mapRotationSmoothed:NaN, _gpsUserMoving:false, _gpsSuspendUntil:0, _gpsProgrammaticMoveUntil:0, _gpsTrackCenter:null, _gpsLastLookaheadHeading:NaN, _lastGpsViewAt:0,
   init(){
     if(!window.L){throw new Error('Leaflet failed to load. Check internet connection for map library.');}
     this.map=L.map('map',{zoomControl:false,preferCanvas:true}).setView([-31.9523,115.8613],10);
@@ -1911,6 +1911,7 @@ const MapEngine={
     bind('gpsLocateModeBtn',()=>this.locate());
     bind('gpsFollowModeBtn',()=>this.setGpsMode('follow',{toast:true,showPanel:true}));
     bind('gpsTrackModeBtn',()=>this.setGpsMode('track',{toast:true,showPanel:true}));
+    bind('gpsRotateModeBtn',()=>this.toggleGpsHeadingRotate());
     bind('gpsPanelMinBtn',()=>this.toggleGpsPanelMinimized());
     bind('gpsPanelCloseBtn',()=>this.hideGpsPanel());
     bind('gpsNearestPingBtn',()=>this.pingNearestGpsAsset(10000,{show:true}));
@@ -1935,7 +1936,7 @@ const MapEngine={
     this.startGpsWatch(false);
     this.updateGpsPanel();
     if(opts.toast){
-      const label=this.gpsMode==='free'?'Free scroll — GPS updates only':this.gpsMode==='follow'?'Follow — snap-back after 5 seconds idle':'Tracking/Heli — heading-up map';
+      const label=this.gpsMode==='free'?'Free scroll — GPS updates only':this.gpsMode==='follow'?'Follow — snap-back after 5 seconds idle':'Tracking/Heli — heading based';
       UI?.toast?.(`GPS mode: ${label}`);
     }
     if(this.gpsLast&&(this.gpsMode==='follow'||this.gpsMode==='track'))this.applyGpsModeView([this.gpsLast.lat,this.gpsLast.lon],{force:true});
@@ -1952,6 +1953,8 @@ const MapEngine={
       if(['walking','driving','helicopter'].includes(saved))this.gpsProfile=saved;
       const mode=localStorage.getItem('fieldMapGpsMode');
       if(['free','follow','track'].includes(mode))this.gpsMode=mode;
+      const rot=localStorage.getItem('fieldMapGpsRotateHeading');
+      this.gpsRotateHeading=rot==='1';
     }catch(e){}
     return this.gpsProfile||'walking';
   },
@@ -1975,6 +1978,19 @@ const MapEngine={
     if(this.gpsLast&&(this.gpsMode==='follow'||this.gpsMode==='track'))this.applyGpsModeView([this.gpsLast.lat,this.gpsLast.lon],{force:true});
     this.updateMapRotationFromGps({force:true});
     UI?.toast?.(`${this.gpsProfileLabel(p)} GPS${p==='helicopter'?' tracking on.':'.'}`);
+  },
+  toggleGpsHeadingRotate(){
+    this.gpsRotateHeading=!this.gpsRotateHeading;
+    try{localStorage.setItem('fieldMapGpsRotateHeading',this.gpsRotateHeading?'1':'0');}catch(e){}
+    if(!this.gpsRotateHeading){
+      this._mapHeadingUsed=NaN;
+      this._mapRotationSmoothed=NaN;
+      this.applyMapRotationDeg(0);
+    }else{
+      this.updateMapRotationFromGps({force:true});
+    }
+    this.updateGpsProfileButtons();
+    UI?.toast?.(this.gpsRotateHeading?'Map rotate ON':'Map rotate OFF');
   },
   gpsModeLabel(){
     return this.gpsMode==='track'?'Tracking':this.gpsMode==='follow'?'Follow':'Free scroll';
@@ -2028,6 +2044,13 @@ const MapEngine={
     if(trackBtn){trackBtn.textContent='Tracking/Heli';trackBtn.classList.toggle('active',this.gpsMode==='track');}
     const locateBtn=document.getElementById('gpsLocateModeBtn');
     if(locateBtn){locateBtn.textContent='Locate';locateBtn.classList.toggle('active',this.gpsMode==='free');}
+    const rotateBtn=document.getElementById('gpsRotateModeBtn');
+    if(rotateBtn){
+      rotateBtn.textContent=this.gpsRotateHeading?'Rotate ON':'Rotate OFF';
+      rotateBtn.classList.toggle('active',!!this.gpsRotateHeading);
+      rotateBtn.setAttribute('aria-pressed',this.gpsRotateHeading?'true':'false');
+      rotateBtn.title=this.gpsRotateHeading?'Heading-up map rotation is on':'Heading-up map rotation is off';
+    }
     const minBtn=document.getElementById('gpsPanelMinBtn');
     if(minBtn){minBtn.textContent=this.gpsPanelMinimized?'＋':'−';minBtn.setAttribute('aria-label',this.gpsPanelMinimized?'Expand GPS panel':'Minimise GPS panel');}
     this.updateGpsPanelMinimizedSummary?.();
@@ -2140,9 +2163,17 @@ const MapEngine={
     }
   },
   reapplyMapRotation(){
+    if(!this.gpsRotateHeading){
+      if(Math.abs(Number(this.mapRotationDeg)||0)>0.4)this.applyMapRotationDeg(0);
+      return;
+    }
     if(Math.abs(Number(this.mapRotationDeg)||0)>0.4)this.applyMapRotationDeg(this.mapRotationDeg);
   },
   updateMapRotationFromGps(opts={}){
+    if(!this.gpsRotateHeading){
+      if(Math.abs(Number(this.mapRotationDeg)||0)>0.4)this.applyMapRotationDeg(0);
+      return;
+    }
     const h=Number(this.gpsLast?.heading);
     if(!Number.isFinite(h))return;
     if(this.gpsLast?.unstable&&!opts.force)return;
