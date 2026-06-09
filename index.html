@@ -4,19 +4,26 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#1f3b25">
-  <title>Map_APP-V3.1.87_KXKK_ICON</title>
-  <link rel="manifest" href="manifest.json?v=map-app-v3-1-87_kxkk_icon">
-  <link rel="icon" type="image/png" href="icons/favicon.png?v=map-app-v3-1-87_kxkk_icon">
+  <title>myMap</title>
+  <link rel="manifest" href="manifest.json?v=mymap-v3-1-90_name_icon">
+  <link rel="icon" type="image/png" href="icons/favicon.png?v=mymap-v3-1-90_name_icon">
+  <link rel="apple-touch-icon" href="icons/icon-192.png?v=mymap-v3-1-90_name_icon">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-  <link rel="stylesheet" href="css/lean-engine.css?v=map-app-v3-1-87_kxkk_icon">
+  <link rel="stylesheet" href="css/lean-engine.css?v=mymap-v3-1-90_name_icon">
 </head>
 <body>
   <div id="map"></div>
 
   <div class="lean-left-rail">
-    <button id="gpsFollow" class="lean-round-btn gps-control gps-free" type="button" title="GPS Free scroll — tap to change mode" aria-label="GPS Free scroll — tap to change mode"><span class="gps-arrow-icon" aria-hidden="true"><svg viewBox="0 0 24 24" role="img" focusable="false"><path d="M12 2 20.5 21 12 16.9 3.5 21 12 2Z"/></svg></span></button>
-    <button id="magnifyBtn" class="lean-round-btn" type="button" title="Circuits" aria-label="Circuits">⌕</button>
-    <button id="plusBtn" class="lean-round-btn" type="button" title="More map controls" aria-label="More map controls">+</button>
+    <div class="lean-top-row">
+      <button id="gpsFollow" class="lean-round-btn gps-control gps-free" type="button" title="GPS Free scroll — tap to change mode" aria-label="GPS Free scroll — tap to change mode"><span class="gps-arrow-icon" aria-hidden="true"><svg viewBox="0 0 24 24" role="img" focusable="false"><path d="M12 2 20.5 21 12 16.9 3.5 21 12 2Z"/></svg></span></button>
+      <button id="plusBtn" class="lean-round-btn" type="button" title="More map controls" aria-label="More map controls">+</button>
+      <button id="mapLayerBtn" class="lean-round-btn layer-control" type="button" title="Map layer: Street" aria-label="Change map layer"><span id="mapLayerLabel">MAP</span></button>
+    </div>
+    <div class="lean-search-col">
+      <button id="magnifyBtn" class="lean-round-btn" type="button" title="Circuits" aria-label="Circuits">⌕</button>
+      <button id="nearbyBtn" class="lean-round-btn nearby-control" type="button" title="Nearby assets" aria-label="Show nearby assets">Near</button>
+    </div>
   </div>
 
   <section id="gpsPatrolPanel" class="gps-patrol-panel hidden" aria-live="polite">
@@ -49,8 +56,6 @@
   <div id="plusMenu" class="plus-menu hidden">
     <button id="clearMapDisplayBtn" class="primary main-clear-btn" type="button">Clear Map Display</button>
     <button id="toolsBtn" type="button">Tools</button>
-    <button id="showAllSubstationsBtn" type="button">Show All Substations</button>
-    <button id="showAllDepotsBtn" type="button">Show All Depots</button>
     <button id="conductorBtn" type="button">Conductors</button>
     <button id="statusBtn" type="button">Data manager</button>
     <button id="importBtn" type="button">Import files</button>
@@ -162,17 +167,17 @@
   </section>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="js/lean-app-core.js?v=map-app-v3-1-87_kxkk_icon"></script>
-  <script src="js/diagnostics.js?v=map-app-v3-1-87_kxkk_icon"></script>
-  <script src="js/lean-engine-stubs.js?v=map-app-v3-1-87_kxkk_icon"></script>
-  <script src="js/storage-engine.js?v=map-app-v3-1-87_kxkk_icon"></script>
-  <script src="js/import-engine.js?v=map-app-v3-1-87_kxkk_icon"></script>
-  <script src="js/conductor-data-loader.js?v=map-app-v3-1-87_kxkk_icon"></script>
-  <script src="js/search-engine.js?v=map-app-v3-1-87_kxkk_icon"></script>
-  <script src="js/span-weight-calculator.js?v=map-app-v3-1-87_kxkk_icon"></script>
-  <script src="js/popup-engine.js?v=map-app-v3-1-87_kxkk_icon"></script>
-  <script src="js/map-engine.js?v=map-app-v3-1-87_kxkk_icon"></script>
-  <script src="js/hv-crossings-layer.js?v=map-app-v3-1-87_kxkk_icon"></script>
-  <script src="js/lean-map-app.js?v=map-app-v3-1-87_kxkk_icon"></script>
+  <script src="js/lean-app-core.js?v=mymap-v3-1-90_name_icon"></script>
+  <script src="js/diagnostics.js?v=mymap-v3-1-90_name_icon"></script>
+  <script src="js/lean-engine-stubs.js?v=mymap-v3-1-90_name_icon"></script>
+  <script src="js/storage-engine.js?v=mymap-v3-1-90_name_icon"></script>
+  <script src="js/import-engine.js?v=mymap-v3-1-90_name_icon"></script>
+  <script src="js/conductor-data-loader.js?v=mymap-v3-1-90_name_icon"></script>
+  <script src="js/search-engine.js?v=mymap-v3-1-90_name_icon"></script>
+  <script src="js/span-weight-calculator.js?v=mymap-v3-1-90_name_icon"></script>
+  <script src="js/popup-engine.js?v=mymap-v3-1-90_name_icon"></script>
+  <script src="js/map-engine.js?v=mymap-v3-1-90_name_icon"></script>
+  <script src="js/hv-crossings-layer.js?v=mymap-v3-1-90_name_icon"></script>
+  <script src="js/lean-map-app.js?v=mymap-v3-1-90_name_icon"></script>
 </body>
 </html>
