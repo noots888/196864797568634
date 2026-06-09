@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#1f3b25">
+  <title>Map_APP-V3.1.87_KXKK_ICON</title>
+  <link rel="manifest" href="manifest.json?v=map-app-v3-1-87_kxkk_icon">
+  <link rel="icon" type="image/png" href="icons/favicon.png?v=map-app-v3-1-87_kxkk_icon">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <link rel="stylesheet" href="css/lean-engine.css?v=map-app-v3-1-87_kxkk_icon">
+</head>
+<body>
+  <div id="map"></div>
+
+  <div class="lean-left-rail">
+    <button id="gpsFollow" class="lean-round-btn gps-control gps-free" type="button" title="GPS Free scroll — tap to change mode" aria-label="GPS Free scroll — tap to change mode"><span class="gps-arrow-icon" aria-hidden="true"><svg viewBox="0 0 24 24" role="img" focusable="false"><path d="M12 2 20.5 21 12 16.9 3.5 21 12 2Z"/></svg></span></button>
+    <button id="magnifyBtn" class="lean-round-btn" type="button" title="Circuits" aria-label="Circuits">⌕</button>
+    <button id="plusBtn" class="lean-round-btn" type="button" title="More map controls" aria-label="More map controls">+</button>
+  </div>
+
+  <section id="gpsPatrolPanel" class="gps-patrol-panel hidden" aria-live="polite">
+    <div class="gps-patrol-head">
+      <div><b id="gpsProfileLabel">GPS</b><span id="gpsStatus">GPS —</span></div>
+      <button id="gpsPanelCloseBtn" type="button" aria-label="Hide GPS panel">×</button>
+    </div>
+    <div class="gps-mode-strip" role="group" aria-label="GPS movement profile">
+      <button type="button" data-gps-profile="walking">Walk</button>
+      <button type="button" data-gps-profile="driving">Drive</button>
+      <button type="button" data-gps-profile="helicopter">Heli</button>
+    </div>
+    <div class="gps-patrol-grid">
+      <div><b id="gpsSpeedValue">—</b><span>speed</span></div>
+      <div><b id="gpsAltitudeValue">—</b><span>altitude</span></div>
+      <div><b id="gpsHeadingValue">—</b><span>heading</span></div>
+      <div><b id="gpsAccuracyValue">—</b><span>accuracy</span></div>
+    </div>
+    <div class="gps-nearest-card">
+      <div><span>Nearest</span><b id="gpsNearestValue">—</b></div>
+      <div><span>Next</span><b id="gpsNextValue">—</b></div>
+      <div><span>Circuit</span><b id="gpsCircuitValue">—</b></div>
+    </div>
+    <div class="gps-panel-actions">
+      <button id="gpsFollowModeBtn" type="button">Follow</button>
+      <button id="gpsStopFollowBtn" type="button">Stop follow</button>
+    </div>
+  </section>
+
+  <div id="plusMenu" class="plus-menu hidden">
+    <button id="clearMapDisplayBtn" class="primary main-clear-btn" type="button">Clear Map Display</button>
+    <button id="toolsBtn" type="button">Tools</button>
+    <button id="showAllSubstationsBtn" type="button">Show All Substations</button>
+    <button id="showAllDepotsBtn" type="button">Show All Depots</button>
+    <button id="conductorBtn" type="button">Conductors</button>
+    <button id="statusBtn" type="button">Data manager</button>
+    <button id="importBtn" type="button">Import files</button>
+    <button id="resetBtn" class="main-reset-btn" type="button">Reset</button>
+  </div>
+
+  <section id="circuitPicker" class="circuit-picker hidden">
+    <header class="panel-head">
+      <div><b>Circuits</b><span id="circuitCountLabel">0 circuits</span></div>
+      <button id="closeCircuitPicker" type="button">×</button>
+    </header>
+    <div class="panel-body">
+      <div class="tiny-note">Alphabetical list. Seven rows visible. No keyboard.</div>
+      <div id="circuitList" class="circuit-list"></div>
+      <div class="action-row"><button id="loadCircuitBtn" class="load-btn" type="button">OK / Load</button><button type="button" onclick="LeanMapApp.closeCircuitPicker()">Cancel</button></div>
+      <button id="assetSearchFromCircuitBtn" class="asset-search-under-btn" type="button">Asset search</button>
+    </div>
+  </section>
+
+  <section id="assetSearchPanel" class="search-panel hidden">
+    <header class="panel-head">
+      <div><b>Asset search</b><span>Search saved assets</span></div>
+      <button id="closeSearchPanel" type="button">×</button>
+    </header>
+    <div class="panel-body">
+      <div class="search-line"><input id="assetSearchInput" autocomplete="off" placeholder="Line / structure / asset"><button id="runAssetSearchBtn" class="load-btn" type="button">Search</button></div>
+      <div id="assetSearchResults" class="search-results"><div class="tiny-note">Open from the magnifying glass search panel.</div></div>
+    </div>
+  </section>
+
+  <section id="statusPanel" class="status-panel data-manager-panel hidden">
+    <header class="panel-head">
+      <div><b>Data manager</b><span id="dataManagerSubtitle">Files · assets</span></div>
+      <button id="closeStatusPanel" type="button">×</button>
+    </header>
+    <div class="panel-body data-manager-body">
+      <div id="dataCategoryTabs" class="data-tabs">
+        <button type="button" data-cat="summary" class="active">Summary</button>
+        <button type="button" data-cat="files">Files</button>
+        <button type="button" data-cat="assets">Assets</button>
+      </div>
+      <div id="statusBody" class="data-view"></div>
+    </div>
+    <button id="panelScrollTopBtn" class="scroll-top-btn hidden" type="button" title="Scroll to top" aria-label="Scroll to top">↑</button>
+  </section>
+
+
+
+  <section id="conductorsPanel" class="conductors-panel hidden">
+    <header class="panel-head conductor-panel-head">
+      <div class="panel-title-block"><b>Conductors</b><span id="conductorsSubtitle">By circuit</span></div>
+      <div class="conductor-head-actions" aria-label="Conductor actions">
+        <button id="importConductorHeaderBtn" class="title-action-btn title-import-btn" type="button" data-import-conductor-json="1">Import</button>
+        <button id="conductorWeightHeaderBtn" class="title-action-btn title-weight-btn" type="button" data-cond-panel="weight">Weight test</button>
+      </div>
+      <button id="closeConductorsPanel" class="panel-close-btn" type="button" aria-label="Close conductors">×</button>
+    </header>
+    <div class="panel-body conductors-body">
+      <div id="conductorCategoryTabs" class="data-tabs conductor-tabs">
+        <button type="button" data-cond-panel="circuit" class="active">By circuit</button>
+        <button type="button" data-cond-panel="name">By name</button>
+        <button type="button" data-cond-panel="material">By material</button>
+        <button type="button" data-cond-panel="type">By type</button>
+      </div>
+      <div id="conductorsBody" class="data-view"></div>
+    </div>
+    <button id="conductorsScrollTopBtn" class="scroll-top-btn conductor-scroll-top-btn hidden" type="button" title="Scroll conductors to top" aria-label="Scroll conductors to top">↑</button>
+  </section>
+
+  <section id="toolsPanel" class="tools-panel hidden">
+    <header class="panel-head">
+      <div><b>Tools</b><span>Map display tools</span></div>
+      <button id="closeToolsPanel" type="button">×</button>
+    </header>
+    <div class="panel-body tools-body">
+      <div id="toolsBody" class="data-view"></div>
+    </div>
+  </section>
+
+  <section id="resetPanel" class="reset-panel hidden">
+    <header class="panel-head">
+      <div><b>Reset</b><span>Cache and app reset</span></div>
+      <button id="closeResetPanel" type="button">×</button>
+    </header>
+    <div class="panel-body reset-body">
+      <div id="resetBody" class="data-view"></div>
+    </div>
+  </section>
+
+  <input id="fileInput" type="file" multiple accept=".json,.geojson,.csv,.txt,.zip,application/json,text/csv,text/plain" class="hidden">
+  <input id="conductorJsonInput" type="file" accept=".json,application/json" class="hidden">
+
+  <div id="toast" class="toast"></div>
+  <div id="importOverlay" class="progress-overlay hidden">
+    <div class="progress-card">
+      <b id="overlayProgressTitle">Working…</b>
+      <span id="overlayProgressDetail"></span>
+      <span id="queueStatus"></span>
+      <div class="progress-bar"><div id="overlayProgressFill" class="progress-fill"></div></div>
+      <span id="overlayProgressPct">0%</span>
+      <button id="cancelImportBtn" type="button" onclick="window.ImportEngine?.cancelImport?.();return false;">Cancel</button>
+    </div>
+  </div>
+
+  <section id="crashPanel" class="crash-panel hidden">
+    <b>App error</b>
+    <pre id="crashText"></pre>
+    <button id="dismissCrash" type="button">Dismiss</button>
+  </section>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="js/lean-app-core.js?v=map-app-v3-1-87_kxkk_icon"></script>
+  <script src="js/diagnostics.js?v=map-app-v3-1-87_kxkk_icon"></script>
+  <script src="js/lean-engine-stubs.js?v=map-app-v3-1-87_kxkk_icon"></script>
+  <script src="js/storage-engine.js?v=map-app-v3-1-87_kxkk_icon"></script>
+  <script src="js/import-engine.js?v=map-app-v3-1-87_kxkk_icon"></script>
+  <script src="js/conductor-data-loader.js?v=map-app-v3-1-87_kxkk_icon"></script>
+  <script src="js/search-engine.js?v=map-app-v3-1-87_kxkk_icon"></script>
+  <script src="js/span-weight-calculator.js?v=map-app-v3-1-87_kxkk_icon"></script>
+  <script src="js/popup-engine.js?v=map-app-v3-1-87_kxkk_icon"></script>
+  <script src="js/map-engine.js?v=map-app-v3-1-87_kxkk_icon"></script>
+  <script src="js/hv-crossings-layer.js?v=map-app-v3-1-87_kxkk_icon"></script>
+  <script src="js/lean-map-app.js?v=map-app-v3-1-87_kxkk_icon"></script>
+</body>
+</html>
