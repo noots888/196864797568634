@@ -466,10 +466,11 @@ html,body,#map{height:100dvh;min-height:100%;}
 .gps-patrol-head{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:start}
 .gps-patrol-head b{display:block;color:var(--field-green-deep);font-size:14px;line-height:1.05}
 .gps-patrol-head span{display:block;color:#51634e;font-size:11px;font-weight:900;margin-top:2px}
+.gps-panel-head-actions{display:flex;align-items:center;gap:6px}
 .gps-patrol-head button{width:32px;height:32px;border:0;border-radius:11px;background:var(--field-sand);color:var(--field-green);font-weight:1000;font-size:18px;line-height:1}
 .gps-mode-strip{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px}
 .gps-mode-strip button,.gps-panel-actions button,.gps-tools-grid button{border:1px solid rgba(31,59,37,.2);border-radius:12px;background:#fff7e7;color:var(--field-green);font-weight:1000;padding:10px 6px;font-size:12px;text-align:center}
-.gps-mode-strip button.active,.gps-tools-grid button.active{background:linear-gradient(180deg,var(--field-green-2),var(--field-green))!important;color:var(--field-cream-2)!important;border-color:rgba(255,250,240,.3)!important}
+.gps-mode-strip button.active,.gps-tools-grid button.active,.gps-panel-actions button.active{background:linear-gradient(180deg,var(--field-green-2),var(--field-green))!important;color:var(--field-cream-2)!important;border-color:rgba(255,250,240,.3)!important}
 .gps-patrol-grid{display:grid;grid-template-columns:1fr 1fr;gap:7px}
 .gps-patrol-grid>div{background:linear-gradient(180deg,#fffaf0,#efe4ca);border:1px solid rgba(31,59,37,.14);border-radius:14px;padding:8px;display:grid;gap:2px;min-width:0}
 .gps-patrol-grid b{font-size:16px;color:var(--field-green);line-height:1.05;word-break:break-word;overflow-wrap:anywhere}
@@ -480,10 +481,16 @@ html,body,#map{height:100dvh;min-height:100%;}
 .gps-nearest-card span{font-size:10px;text-transform:uppercase;letter-spacing:.04em;color:#65725c;font-weight:1000}
 .gps-nearest-card b{font-size:12px;color:#20331f;line-height:1.2;word-break:break-word;overflow-wrap:anywhere}
 .gps-panel-actions{display:grid;grid-template-columns:1fr 1fr;gap:7px}
+.gps-panel-actions.gps-panel-actions-three{grid-template-columns:0.85fr 0.85fr 1.3fr}
 .gps-panel-actions button{min-height:42px;background:var(--field-sand);color:var(--field-green)}
+.gps-patrol-panel.minimized{width:min(320px,calc(100vw - 20px));gap:0;padding:8px 10px;border-radius:16px}
+.gps-patrol-panel.minimized .gps-mode-strip,.gps-patrol-panel.minimized .gps-patrol-grid,.gps-patrol-panel.minimized .gps-nearest-card,.gps-patrol-panel.minimized .gps-panel-actions{display:none!important}
+.gps-patrol-panel.minimized .gps-patrol-head{align-items:center}
+.gps-patrol-panel.minimized .gps-patrol-head b{font-size:13px}
+.gps-patrol-panel.minimized .gps-patrol-head span{font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:210px}
 .gps-tools-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:7px;margin-top:2px}
 .status-pill:has(+ .gps-patrol-panel),body:has(.gps-patrol-panel:not(.hidden)) .status-pill{display:none}
-@media(max-width:420px){.gps-patrol-panel{left:8px;right:8px;width:auto;bottom:calc(8px + var(--safe-bottom));border-radius:16px;padding:9px}.gps-patrol-grid b{font-size:15px}.gps-nearest-card>div{grid-template-columns:58px minmax(0,1fr)}.gps-tools-grid{grid-template-columns:1fr}.gps-panel-actions button{min-height:44px}}
+@media(max-width:420px){.gps-patrol-panel{left:8px;right:8px;width:auto;bottom:calc(8px + var(--safe-bottom));border-radius:16px;padding:9px}.gps-patrol-grid b{font-size:15px}.gps-nearest-card>div{grid-template-columns:58px minmax(0,1fr)}.gps-tools-grid{grid-template-columns:1fr}.gps-panel-actions button{min-height:44px}.gps-panel-actions.gps-panel-actions-three{grid-template-columns:.82fr .82fr 1.36fr}.gps-panel-actions.gps-panel-actions-three button{font-size:11.5px;padding-left:4px;padding-right:4px}}
 @media(max-height:650px){.gps-patrol-panel{gap:6px;padding:8px}.gps-patrol-grid{grid-template-columns:repeat(4,1fr);gap:5px}.gps-patrol-grid>div{padding:6px}.gps-patrol-grid b{font-size:13px}.gps-patrol-grid span{font-size:8.5px}.gps-nearest-card{padding:7px}.gps-mode-strip button,.gps-panel-actions button{padding:8px 5px;min-height:38px}}
 @media(max-width:360px){.gps-patrol-grid{grid-template-columns:1fr 1fr}.gps-mode-strip button{font-size:11px}.gps-patrol-panel{max-height:calc(100dvh - 16px - var(--safe-top) - var(--safe-bottom));overflow:auto}}
 /* GPS button added to left rail: keep + menu below the three rail buttons. */
