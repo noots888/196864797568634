@@ -1,6 +1,6 @@
-// myMap service-worker cleanup/bump · mymap-v3-1-98_ping_rotate_center
+// myMap service-worker cleanup/bump · mymap-v3-1-99_rotate_toggle
 // Keeps GitHub Pages/mobile PWA from serving stale app shell files.
-const MYMAP_SW_VERSION = 'mymap-v3-1-98_ping_rotate_center';
+const MYMAP_SW_VERSION = 'mymap-v3-1-99_rotate_toggle';
 const OLD_CACHE_PATTERNS = [/^field-map-/i, /^fieldMap/i, /^myMap/i, /^mymap/i];
 
 self.addEventListener('install', event => {
