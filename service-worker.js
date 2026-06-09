@@ -1,6 +1,6 @@
-// myMap service-worker cleanup/bump · mymap-v3-1-95_gps_heading_signal_stable_cache_bump
+// myMap service-worker cleanup/bump · mymap-v3-1-97_minimized_nearest
 // Keeps GitHub Pages/mobile PWA from serving stale app shell files.
-const MYMAP_SW_VERSION = 'mymap-v3-1-95_gps_heading_signal_stable_cache_bump';
+const MYMAP_SW_VERSION = 'mymap-v3-1-97_minimized_nearest';
 const OLD_CACHE_PATTERNS = [/^field-map-/i, /^fieldMap/i, /^myMap/i, /^mymap/i];
 
 self.addEventListener('install', event => {
