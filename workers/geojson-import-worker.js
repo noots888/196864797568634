@@ -1,4 +1,4 @@
-/* Map_APP large file import worker. Keeps the main UI alive during large imports. */
+/* myMap large file import worker. Keeps the main UI alive during large imports. */
 self.window=self;
 self.Diagnostics={log(){},capture(){}};
 self.UI={progress(){}};
