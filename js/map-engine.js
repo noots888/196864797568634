@@ -1,5 +1,5 @@
 const MapEngine={
-  map:null, layers:{}, markerLayer:null, routeLayer:null, connectedLineLayer:null, utilityLayer:null, userMarker:null, gpsWatchId:null, gpsMode:'free', gpsProfile:'walking', gpsLast:null, gpsError:false, base:'street', satellite:false, drawing:false, drawToken:0, mapRenderer:null, currentDisplay:'none', currentCircuit:null, currentCircuits:[], currentCircuitRoutes:[], lastFullCircuitAssets:[], lastFullCircuitLabel:'', circuitDensityMode:'', gpsNearestCache:null, gpsPanelHidden:false, gpsPanelMinimized:false, gpsPendingLocateOnce:false, gpsInteractionTimer:null, gpsPingMarker:null, gpsPingTimer:null, gpsLastRaw:null, _gpsUserMoving:false, _gpsSuspendUntil:0, _gpsProgrammaticMoveUntil:0,
+  map:null, layers:{}, markerLayer:null, routeLayer:null, connectedLineLayer:null, utilityLayer:null, userMarker:null, gpsWatchId:null, gpsMode:'free', gpsProfile:'walking', gpsLast:null, gpsError:false, base:'street', satellite:false, drawing:false, drawToken:0, mapRenderer:null, currentDisplay:'none', currentCircuit:null, currentCircuits:[], currentCircuitRoutes:[], lastFullCircuitAssets:[], lastFullCircuitLabel:'', circuitDensityMode:'', gpsNearestCache:null, gpsPanelHidden:false, gpsPanelMinimized:false, gpsPendingLocateOnce:false, gpsInteractionTimer:null, gpsPingMarker:null, gpsPingTimer:null, gpsLastRaw:null, _gpsUserMoving:false, _gpsSuspendUntil:0, _gpsProgrammaticMoveUntil:0, _gpsTrackCenter:null, _gpsLastLookaheadHeading:NaN, _lastGpsViewAt:0,
   init(){
     if(!window.L){throw new Error('Leaflet failed to load. Check internet connection for map library.');}
     this.map=L.map('map',{zoomControl:false,preferCanvas:true}).setView([-31.9523,115.8613],10);
@@ -1905,6 +1905,8 @@ const MapEngine={
     this.gpsError=false;
     this._gpsUserMoving=false;
     this._gpsSuspendUntil=0;
+    this._gpsTrackCenter=null;
+    this._gpsLastLookaheadHeading=NaN;
     if(this.gpsInteractionTimer){clearTimeout(this.gpsInteractionTimer);this.gpsInteractionTimer=null;}
     try{localStorage.setItem('fieldMapGpsMode',this.gpsMode);}catch(e){}
     this.updateGpsButton();
@@ -1940,6 +1942,8 @@ const MapEngine={
     this.gpsProfile=p;
     try{localStorage.setItem('fieldMapGpsProfile',p);}catch(e){}
     if(p==='helicopter')this.gpsMode='track';
+    this._gpsTrackCenter=null;
+    this._gpsLastLookaheadHeading=NaN;
     try{localStorage.setItem('fieldMapGpsMode',this.gpsMode);}catch(e){}
     this.showGpsPanel();
     this.updateGpsButton();
@@ -1972,6 +1976,20 @@ const MapEngine={
     if(panel)panel.classList.toggle('minimized',this.gpsPanelMinimized);
     const btn=document.getElementById('gpsPanelMinBtn');
     if(btn){btn.textContent=this.gpsPanelMinimized?'＋':'−';btn.setAttribute('aria-label',this.gpsPanelMinimized?'Expand GPS panel':'Minimise GPS panel');}
+    this.updateGpsPanelMinimizedSummary();
+  },
+  updateGpsPanelMinimizedSummary(sum=null){
+    const panel=document.getElementById('gpsPatrolPanel');
+    if(!panel||!panel.classList.contains('minimized'))return false;
+    if(!sum)sum=this.gpsNearestSummary?.();
+    const lab=document.getElementById('gpsProfileLabel');
+    const status=document.getElementById('gpsStatus');
+    if(lab)lab.textContent='Nearest';
+    if(status){
+      if(sum?.nearest)status.textContent=`${this.titleForGpsAsset(sum.nearest)} · ${this.fmtGpsDistance(sum.nearestM)}`;
+      else status.textContent='No mapped asset nearby';
+    }
+    return true;
   },
   updateGpsProfileButtons(){
     const p=this.gpsProfile||'walking';
@@ -1989,6 +2007,7 @@ const MapEngine={
     if(locateBtn){locateBtn.textContent='Locate';locateBtn.classList.toggle('active',this.gpsMode==='free');}
     const minBtn=document.getElementById('gpsPanelMinBtn');
     if(minBtn){minBtn.textContent=this.gpsPanelMinimized?'＋':'−';minBtn.setAttribute('aria-label',this.gpsPanelMinimized?'Expand GPS panel':'Minimise GPS panel');}
+    this.updateGpsPanelMinimizedSummary?.();
   },
   updateGpsButton(){
     const btn=document.getElementById('gpsFollow');
@@ -2064,16 +2083,29 @@ const MapEngine={
       return Math.max(0,Math.min(p.bottom,m.bottom)-Math.max(p.top,m.top));
     }catch(e){return 0;}
   },
-  gpsLookAheadLatLng(ll,z){
+  gpsLookAheadLatLng(ll,z,opts={}){
     if(!this.map||!Array.isArray(ll)||!window.L)return Array.isArray(ll)?L.latLng(ll[0],ll[1]):ll;
     const base=L.latLng(Number(ll[0]),Number(ll[1]));
-    const heading=Number(this.gpsLast?.heading);
+    let heading=Number(this.gpsLast?.heading);
     if(!Number.isFinite(heading))return base;
     const speed=Number(this.gpsLast?.speed);
+    const acc=Number(this.gpsLast?.accuracy);
+    // Heli look-ahead was too aggressive before: heading + GPS accuracy jitter made the
+    // map hunt around. Only update look-ahead heading when it is meaningfully different.
+    const oldHeading=Number(this._gpsLastLookaheadHeading);
+    const minHeadingChange=this.gpsProfile==='helicopter'?16:12;
+    if(Number.isFinite(oldHeading)&&!opts.force){
+      const diff=this.angleDiffDeg(oldHeading,heading);
+      const moving=Number.isFinite(speed)&&speed>(this.gpsProfile==='helicopter'?4:1.2);
+      if(diff<minHeadingChange || !moving)heading=oldHeading;
+      else this._gpsLastLookaheadHeading=heading;
+    }else{
+      this._gpsLastLookaheadHeading=heading;
+    }
     const panelPx=this.gpsPanelOverlapPx();
-    const panelBoost=panelPx>0?Math.min(150,Math.max(70,panelPx*0.32)):80;
-    const speedBoost=Number.isFinite(speed)&&speed>0?Math.min(95,speed*6):0;
-    const lookPx=(this.gpsMode==='track'?170:125)+panelBoost+speedBoost;
+    const panelBoost=panelPx>0?Math.min(95,Math.max(42,panelPx*0.18)):52;
+    const accPenalty=Number.isFinite(acc)?Math.min(32,Math.max(0,(acc-15)*0.35)):0;
+    const lookPx=Math.max(82,(this.gpsMode==='track'?118:92)+panelBoost-accPenalty);
     const rad=heading*Math.PI/180;
     const dx=Math.sin(rad)*lookPx;
     const dy=-Math.cos(rad)*lookPx;
@@ -2082,21 +2114,43 @@ const MapEngine={
       return this.map.unproject(pt,z);
     }catch(e){return base;}
   },
+  smoothLatLngTarget(target,opts={}){
+    if(!target||!Number.isFinite(Number(target.lat))||!Number.isFinite(Number(target.lng)))return target;
+    if(opts.force||this.gpsMode!=='track'){
+      this._gpsTrackCenter={lat:Number(target.lat),lng:Number(target.lng)};
+      return target;
+    }
+    const old=this._gpsTrackCenter;
+    if(!old||!Number.isFinite(Number(old.lat))||!Number.isFinite(Number(old.lng))){
+      this._gpsTrackCenter={lat:Number(target.lat),lng:Number(target.lng)};
+      return target;
+    }
+    const d=this.distanceM({lat:old.lat,lon:old.lng},{lat:target.lat,lon:target.lng});
+    const alpha=d>180?.48:(d>80?.36:.24);
+    const lat=Number(old.lat)+(Number(target.lat)-Number(old.lat))*alpha;
+    const lng=Number(old.lng)+(Number(target.lng)-Number(old.lng))*alpha;
+    this._gpsTrackCenter={lat,lng};
+    return L.latLng(lat,lng);
+  },
   gpsSetAheadView(ll,z,opts={}){
-    const center=(this.gpsMode==='track')?this.gpsLookAheadLatLng(ll,z):L.latLng(ll[0],ll[1]);
+    let center=(this.gpsMode==='track')?this.gpsLookAheadLatLng(ll,z,opts):L.latLng(ll[0],ll[1]);
+    center=this.smoothLatLngTarget(center,opts);
     if(!opts.force){
       try{
         const cur=this.map.getCenter?.();
         const d=cur?this.distanceM({lat:cur.lat,lon:cur.lng},{lat:center.lat,lon:center.lng}):Infinity;
-        if(Number.isFinite(d)&&d<(this.gpsMode==='track'?12:5))return;
+        const minMove=this.gpsMode==='track'?32:7;
+        if(Number.isFinite(d)&&d<minMove)return;
       }catch(e){}
     }
     const viewOpts={...opts}; delete viewOpts.force;
-    this.setProgrammaticGpsView(()=>this.map.setView(center,z,viewOpts));
+    this.setProgrammaticGpsView(()=>this.map.panTo(center,{...viewOpts,animate:true,duration:this.gpsMode==='track'?0.55:0.32}));
   },
   setProgrammaticGpsView(fn){
-    this._gpsProgrammaticMoveUntil=Date.now()+800;
-    try{fn?.();}finally{setTimeout(()=>{if(Date.now()>(this._gpsProgrammaticMoveUntil||0))this._gpsProgrammaticMoveUntil=0;},850);}
+    // Mobile Leaflet sometimes emits delayed moveend/zoomend after animated pan.
+    // Hold this long enough so programmatic GPS pans do not get mistaken for user panning.
+    this._gpsProgrammaticMoveUntil=Date.now()+1800;
+    try{fn?.();}finally{setTimeout(()=>{if(Date.now()>(this._gpsProgrammaticMoveUntil||0))this._gpsProgrammaticMoveUntil=0;},1850);}
   },
   jumpToGpsPosition(ll){
     if(!this.map||!Array.isArray(ll))return;
@@ -2132,7 +2186,7 @@ const MapEngine={
     if(!opts.force&&this.gpsLast?.unstable)return;
     const now=Date.now();
     if(!opts.force&&(this._gpsUserMoving||now<(this._gpsSuspendUntil||0)))return;
-    const throttle=this.gpsMode==='track'?1300:950;
+    const throttle=this.gpsMode==='track'?2100:1100;
     if(!opts.force&&now-(this._lastGpsViewAt||0)<throttle)return;
     this._lastGpsViewAt=now;
     const z=this.map.getZoom?.()||15;
@@ -2143,7 +2197,7 @@ const MapEngine={
         const d=cur?this.distanceM({lat:cur.lat,lon:cur.lng},{lat:Number(ll[0]),lon:Number(ll[1])}):Infinity;
         if(!opts.force&&Number.isFinite(d)&&d<5)return;
       }catch(e){}
-      this.setProgrammaticGpsView(()=>this.map.setView(ll,z,{animate:true,duration:0.26}));
+      this.setProgrammaticGpsView(()=>this.map.panTo(ll,{animate:true,duration:0.32}));
     }
   },
   deriveGpsHeading(prev,next){
@@ -2209,11 +2263,11 @@ const MapEngine={
     if(!Number.isFinite(h))return Number.isFinite(old)?old:NaN;
     if(!Number.isFinite(old))return h;
     const sp=Number(speed);
-    const minSpeed=this.gpsProfile==='helicopter'?4.5:1.1;
+    const minSpeed=this.gpsProfile==='helicopter'?5.5:1.1;
     const diff=this.angleDiffDeg(old,h);
-    if((!Number.isFinite(sp)||sp<minSpeed)&&diff<28)return old;
-    if(diff<(this.gpsProfile==='helicopter'?10:8))return old;
-    const alpha=this.gpsProfile==='helicopter'?0.42:(Number.isFinite(sp)&&sp>4?0.34:0.24);
+    if((!Number.isFinite(sp)||sp<minSpeed)&&diff<42)return old;
+    if(diff<(this.gpsProfile==='helicopter'?16:10))return old;
+    const alpha=this.gpsProfile==='helicopter'?0.24:(Number.isFinite(sp)&&sp>4?0.32:0.22);
     return this.smoothAngleDeg(old,h,alpha);
   },
   filterGpsFix(raw,prev){
@@ -2256,22 +2310,41 @@ const MapEngine={
     if(this.gpsPingTimer){clearTimeout(this.gpsPingTimer);this.gpsPingTimer=null;}
     if(this.gpsPingMarker){try{this.gpsPingMarker.remove();}catch(e){} this.gpsPingMarker=null;}
   },
-  pingNearestGpsAsset(durationMs=10000){
-    const sum=this.gpsNearestSummary?.();
-    const a=sum?.nearest;
+  pingNearestGpsAsset(durationMs=10000,opts={}){
+    let sum=this.gpsNearestSummary?.();
+    let a=sum?.nearest;
+    // Fallback: if the nearest cache has gone stale, scan the currently drawn assets.
+    if(!a&&this.gpsLast){
+      const origin={lat:this.gpsLast.lat,lon:this.gpsLast.lon};
+      const drawn=(Array.isArray(this.lastDrawnAssets)?this.lastDrawnAssets:[])
+        .filter(x=>x&&Number.isFinite(Number(x.lat))&&Number.isFinite(Number(x.lon))&&x.kind!=='circuit');
+      let best=null,bestM=Infinity;
+      for(const x of drawn){
+        const m=this.distanceM(origin,x);
+        if(Number.isFinite(m)&&m<bestM){best=x;bestM=m;}
+      }
+      if(best){a=best;sum={nearest:best,nearestM:bestM};}
+    }
     const lat=Number(a?.lat), lon=Number(a?.lon);
     if(!this.map||!window.L){UI?.toast?.('Map not ready.');return;}
-    if(!a||!Number.isFinite(lat)||!Number.isFinite(lon)){UI?.toast?.('No nearest asset to ping.');return;}
+    if(!a||!Number.isFinite(lat)||!Number.isFinite(lon)){UI?.toast?.('No nearest asset to ping yet. Wait for GPS/nearest to update.');return;}
     this.clearGpsPing();
     const icon=L.divIcon({
-      className:'',
-      html:'<div class="gps-ping-marker" aria-hidden="true"><span></span></div>',
-      iconSize:[52,52],
-      iconAnchor:[26,26]
+      className:'gps-ping-leaflet-icon',
+      html:'<div class="gps-ping-marker" aria-hidden="true"><span></span><i></i></div>',
+      iconSize:[66,66],
+      iconAnchor:[33,33]
     });
-    this.gpsPingMarker=L.marker([lat,lon],{icon,interactive:false,zIndexOffset:1600,riseOnHover:false}).addTo(this.map);
-    this.gpsPingTimer=setTimeout(()=>this.clearGpsPing(),Math.max(2000,Number(durationMs)||10000));
-    UI?.toast?.(`Pinged nearest: ${this.titleForGpsAsset(a)}`);
+    this.gpsPingMarker=L.marker([lat,lon],{icon,interactive:false,zIndexOffset:3000,riseOnHover:false}).addTo(this.map);
+    try{
+      const ll=L.latLng(lat,lon);
+      const visible=this.map.getBounds?.()?.pad?.(-0.18)?.contains?.(ll);
+      if(!visible)this.setProgrammaticGpsView(()=>this.map.panTo(ll,{animate:true,duration:.35}));
+    }catch(e){}
+    const btn=document.getElementById('gpsNearestPingBtn');
+    if(btn){btn.classList.add('pinging');setTimeout(()=>btn.classList.remove('pinging'),900);}
+    this.gpsPingTimer=setTimeout(()=>this.clearGpsPing(),Math.max(2500,Number(durationMs)||10000));
+    UI?.toast?.(`Pinged nearest: ${this.titleForGpsAsset(a)}${Number.isFinite(Number(sum?.nearestM))?' · '+this.fmtGpsDistance(sum.nearestM):''}`);
   },
   titleForGpsAsset(a){
     if(!a)return '—';
@@ -2395,6 +2468,7 @@ const MapEngine={
       set('gpsCircuitValue',this.currentCircuit||'—');
       if(pingBtn){pingBtn.disabled=true;pingBtn.title='No nearest asset to ping';}
     }
+    this.updateGpsPanelMinimizedSummary(sum);
     if(sum?.next)set('gpsNextValue',`${this.titleForGpsAsset(sum.next)} · ${this.fmtGpsDistance(sum.nextM)}`);
     else set('gpsNextValue','—');
   },
