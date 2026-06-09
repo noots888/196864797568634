@@ -162,7 +162,7 @@ button{touch-action:manipulation}
 #toolsBtn{font-weight:1000;}
 @media(max-width:420px){.scroll-top-btn{right:10px;bottom:10px;width:36px;height:36px;border-radius:13px}.pm-box{width:22px;height:22px}.pm-mini{width:19px;height:19px}}
 
-/* Map_APP-V3.1.9 mobile speed alignment */
+/* myMap-V3.1.9 mobile speed alignment */
 html,body,#map{height:100dvh;min-height:100%;}
 .circuit-picker,.search-panel,.status-panel,.conductors-panel,.tools-panel,.reset-panel{max-height:calc(100dvh - 20px - var(--safe-top) - var(--safe-bottom));}
 .circuit-picker .panel-body,.search-panel .panel-body,.conductors-panel .panel-body,.tools-panel .panel-body,.reset-panel .panel-body{max-height:calc(100dvh - 92px - var(--safe-top) - var(--safe-bottom));overflow:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;}
@@ -287,7 +287,7 @@ html,body,#map{height:100dvh;min-height:100%;}
 @media(max-width:420px){.conductor-tabs{grid-template-columns:repeat(2,1fr)}.type-inline-detail{padding:7px}.bay-scroll{max-height:190px}}
 
 
-/* Map_APP-V3.1.21 conductor layout cleanup */
+/* myMap-V3.1.21 conductor layout cleanup */
 .panel-title{min-width:0;display:grid;gap:1px;}
 .panel-actions{display:flex;align-items:center;gap:7px;flex-shrink:0;}
 .panel-head .title-import-btn{border:1px solid rgba(255,250,240,.36);background:rgba(255,250,240,.16);color:var(--field-cream-2);font-size:12px;font-weight:1000;line-height:1;border-radius:999px;padding:8px 10px;min-height:32px;}
@@ -303,13 +303,13 @@ html,body,#map{height:100dvh;min-height:100%;}
 @media(min-width:421px){.conductors-panel .conductor-tabs{grid-template-columns:repeat(3,1fr);}}
 @media(max-width:420px){.panel-head .title-import-btn{font-size:11.5px;padding:8px 9px}.conductors-panel .conductor-tabs{grid-template-columns:repeat(2,1fr)}}
 
-/* Map_APP-V3.1.21 conductor layout cleanup */
+/* myMap-V3.1.21 conductor layout cleanup */
 .conductors-panel .conductor-tabs{grid-template-columns:repeat(2,1fr);}
 @media(min-width:421px){.conductors-panel .conductor-tabs{grid-template-columns:repeat(3,1fr);}}
 #conductorsPanel .data-headline span:empty{display:none;}
 
 
-/* Map_APP-V3.1.21 conductor header actions + stable tabs */
+/* myMap-V3.1.21 conductor header actions + stable tabs */
 #conductorsPanel .conductor-panel-head{display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:center;gap:7px;padding:9px 10px;}
 #conductorsPanel .panel-title-block{min-width:0;overflow:hidden;}
 #conductorsPanel .panel-title-block b,#conductorsPanel .panel-title-block span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
@@ -326,7 +326,7 @@ html,body,#map{height:100dvh;min-height:100%;}
 @media(max-width:360px){#conductorsPanel .panel-head .title-action-btn{font-size:10px;padding:7px 6px}.conductor-head-actions{gap:4px}#conductorsPanel .conductor-panel-head{gap:5px;padding-left:8px;padding-right:8px}}
 
 
-/* Map_APP-V3.1.21 conductor UI cleanup */
+/* myMap-V3.1.21 conductor UI cleanup */
 #conductorsPanel .data-headline,
 #conductorsPanel .compact-card:has(> b:only-child){display:none;}
 #conductorsPanel .type-inline-detail.inline-only{padding:0;border:0;background:transparent;box-shadow:none;}
@@ -342,7 +342,7 @@ html,body,#map{height:100dvh;min-height:100%;}
 @media(max-width:420px){#conductorsPanel .conductor-name-scroll{max-height:58dvh}.earth-bays{max-height:140px}}
 
 
-/* Map_APP-V3.1.21 earth conductor + phase conductor labels */
+/* myMap-V3.1.21 earth conductor + phase conductor labels */
 .circuit-phase-card{
   margin:8px 0;
   padding:10px 12px;
@@ -455,7 +455,7 @@ html,body,#map{height:100dvh;min-height:100%;}
 .asset-popup .popup-title-zoom{display:block;width:100%;border:0;background:transparent;padding:0;margin:0 0 5px;text-align:left;font:inherit;font-weight:1000;font-size:14px;color:var(--field-green);line-height:1.22;cursor:pointer;touch-action:manipulation}
 .asset-popup .popup-title-zoom:active{transform:scale(.99);opacity:.82}
 
-/* V3.1.87 KXKK app icon update */
+/* V3.1.87 myMap app icon update */
 .gps-control{font-size:24px;position:relative;overflow:hidden}
 .gps-control .gps-arrow-icon{display:inline-flex;align-items:center;justify-content:center;transition:transform .18s ease}
 .gps-control .gps-arrow-icon svg{width:22px;height:22px;display:block;fill:currentColor}
@@ -489,3 +489,19 @@ html,body,#map{height:100dvh;min-height:100%;}
 /* GPS button added to left rail: keep + menu below the three rail buttons. */
 .plus-menu{top:calc(178px + var(--safe-top));}
 @media(max-height:580px){.plus-menu{top:calc(154px + var(--safe-top));}}
+
+/* V3.1.88 Nearby + map-layer controls */
+.lean-left-rail{display:grid;gap:8px;align-items:start;grid-template-columns:auto;}
+.lean-top-row{display:grid;grid-template-columns:48px 48px 48px;gap:8px;align-items:center;justify-items:start;}
+.lean-search-col{display:grid;grid-template-columns:48px;gap:8px;align-items:start;justify-items:start;}
+.layer-control{font-size:11px!important;font-weight:1000;letter-spacing:.01em;}
+.layer-control span{display:flex;align-items:center;justify-content:center;line-height:1;font-size:11px;font-weight:1000;}
+.layer-control.satellite-active,.layer-control.topo-active{background:linear-gradient(180deg,var(--field-green-2),var(--field-green-deep));color:var(--field-cream-2);border-color:rgba(255,250,240,.36)}
+.nearby-control{font-size:11px!important;font-weight:1000;letter-spacing:.01em;text-transform:uppercase;}
+.plus-menu{top:calc(66px + var(--safe-top));left:66px;width:min(238px,calc(100vw - 76px));}
+@media(max-width:360px){
+  .lean-top-row{grid-template-columns:44px 44px 44px;gap:7px}.lean-search-col{grid-template-columns:44px;gap:7px}
+  .layer-control span,.nearby-control{font-size:10px!important}
+  .plus-menu{top:calc(60px + var(--safe-top));left:58px;width:min(226px,calc(100vw - 66px));}
+}
+@media(max-height:580px){.plus-menu{top:calc(58px + var(--safe-top));}}
