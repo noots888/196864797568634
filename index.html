@@ -5,11 +5,11 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#1f3b25">
   <title>myMap</title>
-  <link rel="manifest" href="manifest.json?v=mymap-v3-1-99_rotate_toggle">
-  <link rel="icon" type="image/png" href="icons/favicon.png?v=mymap-v3-1-99_rotate_toggle">
-  <link rel="apple-touch-icon" href="icons/icon-192.png?v=mymap-v3-1-99_rotate_toggle">
+  <link rel="manifest" href="manifest.json?v=mymap-v3-1-109_dx_hv_spatial_match">
+  <link rel="icon" type="image/png" href="icons/favicon.png?v=mymap-v3-1-109_dx_hv_spatial_match">
+  <link rel="apple-touch-icon" href="icons/icon-192.png?v=mymap-v3-1-109_dx_hv_spatial_match">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-  <link rel="stylesheet" href="css/lean-engine.css?v=mymap-v3-1-99_rotate_toggle">
+  <link rel="stylesheet" href="css/lean-engine.css?v=mymap-v3-1-109_dx_hv_spatial_match">
 </head>
 <body>
   <div id="map"></div>
@@ -58,6 +58,9 @@
     <div class="gps-rotate-row">
       <button id="gpsRotateModeBtn" type="button" aria-pressed="false">Rotate OFF</button>
     </div>
+    <div class="gps-breadcrumb-row">
+      <button id="gpsBreadcrumbBtn" type="button" aria-pressed="false">Breadcrumb OFF</button>
+    </div>
   </section>
 
   <div id="plusMenu" class="plus-menu hidden">
@@ -102,7 +105,6 @@
       <div id="dataCategoryTabs" class="data-tabs">
         <button type="button" data-cat="summary" class="active">Summary</button>
         <button type="button" data-cat="files">Files</button>
-        <button type="button" data-cat="assets">Assets</button>
       </div>
       <div id="statusBody" class="data-view"></div>
     </div>
@@ -174,17 +176,17 @@
   </section>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="js/lean-app-core.js?v=mymap-v3-1-99_rotate_toggle"></script>
-  <script src="js/diagnostics.js?v=mymap-v3-1-99_rotate_toggle"></script>
-  <script src="js/lean-engine-stubs.js?v=mymap-v3-1-99_rotate_toggle"></script>
-  <script src="js/storage-engine.js?v=mymap-v3-1-99_rotate_toggle"></script>
-  <script src="js/import-engine.js?v=mymap-v3-1-99_rotate_toggle"></script>
-  <script src="js/conductor-data-loader.js?v=mymap-v3-1-99_rotate_toggle"></script>
-  <script src="js/search-engine.js?v=mymap-v3-1-99_rotate_toggle"></script>
-  <script src="js/span-weight-calculator.js?v=mymap-v3-1-99_rotate_toggle"></script>
-  <script src="js/popup-engine.js?v=mymap-v3-1-99_rotate_toggle"></script>
-  <script src="js/map-engine.js?v=mymap-v3-1-99_rotate_toggle"></script>
-  <script src="js/hv-crossings-layer.js?v=mymap-v3-1-99_rotate_toggle"></script>
-  <script src="js/lean-map-app.js?v=mymap-v3-1-99_rotate_toggle"></script>
+  <script src="js/lean-app-core.js?v=mymap-v3-1-109_dx_hv_spatial_match"></script>
+  <script src="js/diagnostics.js?v=mymap-v3-1-109_dx_hv_spatial_match"></script>
+  <script src="js/lean-engine-stubs.js?v=mymap-v3-1-109_dx_hv_spatial_match"></script>
+  <script src="js/storage-engine.js?v=mymap-v3-1-109_dx_hv_spatial_match"></script>
+  <script src="js/import-engine.js?v=mymap-v3-1-109_dx_hv_spatial_match"></script>
+  <script src="js/conductor-data-loader.js?v=mymap-v3-1-109_dx_hv_spatial_match"></script>
+  <script src="js/search-engine.js?v=mymap-v3-1-109_dx_hv_spatial_match"></script>
+  <script src="js/span-weight-calculator.js?v=mymap-v3-1-109_dx_hv_spatial_match"></script>
+  <script src="js/popup-engine.js?v=mymap-v3-1-109_dx_hv_spatial_match"></script>
+  <script src="js/map-engine.js?v=mymap-v3-1-109_dx_hv_spatial_match"></script>
+  <script src="js/hv-crossings-layer.js?v=mymap-v3-1-109_dx_hv_spatial_match"></script>
+  <script src="js/lean-map-app.js?v=mymap-v3-1-109_dx_hv_spatial_match"></script>
 </body>
 </html>
