@@ -35,14 +35,14 @@ button{touch-action:manipulation}
 .lean-round-btn:active{transform:scale(.97)}
 .lean-round-btn.active{background:linear-gradient(180deg,var(--field-green-2),var(--field-green-deep));color:var(--field-cream-2);border-color:rgba(255,250,240,.36)}
 #magnifyBtn{font-size:27px}
-#plusBtn{font-size:30px;padding-bottom:3px}
+#plusBtn{font-size:30px;padding-bottom:3px;background:linear-gradient(180deg,var(--field-green-2),var(--field-green-deep));color:var(--field-cream-2);border-color:rgba(255,250,240,.36)}
 
 .plus-menu{position:fixed;top:calc(118px + var(--safe-top));left:10px;z-index:730;width:min(238px,calc(100vw - 20px));background:rgba(255,250,240,.97);border:1px solid var(--field-line);border-radius:18px;box-shadow:var(--shadow);padding:9px;display:grid;gap:7px;backdrop-filter:blur(8px)}
 .plus-menu button{border:1px solid rgba(31,59,37,.18);border-radius:13px;background:var(--field-cream-2);color:var(--field-green);font-weight:900;text-align:left;padding:11px 12px;font-size:14px;box-shadow:inset 0 1px 0 rgba(255,255,255,.55)}
 .plus-menu button:active{transform:scale(.985)}
 .plus-menu button.primary{background:linear-gradient(180deg,var(--field-green-2),var(--field-green));color:var(--field-cream-2);border-color:rgba(255,250,240,.28)}
 .plus-menu button.main-reset-btn{background:#fff1f1!important;color:#991b1b!important;border-color:rgba(185,28,28,.34)!important;}
-.plus-menu button.main-clear-btn{background:linear-gradient(180deg,var(--field-green-2),var(--field-green))!important;color:var(--field-cream-2)!important;border-color:rgba(255,250,240,.28)!important;}
+.plus-menu button.main-clear-btn{background:linear-gradient(180deg,#dff4ff,#bfe8fb)!important;color:#174f57!important;border-color:rgba(31,111,122,.28)!important;}
 .asset-search-under-btn{width:100%;margin-top:8px;border:1px solid rgba(31,59,37,.18);border-radius:13px;padding:11px 10px;font-weight:1000;background:var(--field-cream-2);color:var(--field-green);box-shadow:inset 0 1px 0 rgba(255,255,255,.55);}
 .asset-search-under-btn:active{transform:scale(.985);}
 
@@ -542,3 +542,170 @@ html,body,#map{height:100dvh;min-height:100%;}
   .plus-menu{top:calc(60px + var(--safe-top));left:58px;width:min(226px,calc(100vw - 66px));}
 }
 @media(max-height:580px){.plus-menu{top:calc(58px + var(--safe-top));}}
+
+/* V3.1.100 measuring tool */
+.measure-dot{width:18px;height:18px;border-radius:999px;background:#fffaf0;border:4px solid var(--field-green-2);box-shadow:0 0 0 4px rgba(47,90,49,.20),0 8px 18px rgba(0,0,0,.18)}
+.measure-tooltip{background:rgba(255,250,240,.96)!important;border:2px solid var(--field-green-2)!important;border-radius:999px!important;color:var(--field-green-deep)!important;font:950 13px/1.1 system-ui,-apple-system,Segoe UI,sans-serif!important;box-shadow:var(--shadow-soft)!important;padding:6px 10px!important;}
+.measure-tooltip:before{display:none!important}
+.data-safe-btn.active,[data-tools-measure-start].active{background:linear-gradient(180deg,var(--field-green-2),var(--field-green))!important;color:var(--field-cream-2)!important;}
+
+/* myMap-V3.1.101 GPS rotate/click/pin/breadcrumb fixes */
+.gps-breadcrumb-row{display:grid;grid-template-columns:1fr;gap:7px}
+.gps-breadcrumb-row button{border:1px solid rgba(31,59,37,.2);border-radius:12px;background:#fff7e7;color:var(--field-green);font-weight:1000;padding:10px 6px;font-size:12px;text-align:center;min-height:42px}
+.gps-breadcrumb-row button.active{background:linear-gradient(180deg,var(--field-green-2),var(--field-green))!important;color:var(--field-cream-2)!important;border-color:rgba(255,250,240,.3)!important}
+.gps-breadcrumb-row button:before{content:"◌";font-size:15px;margin-right:6px;vertical-align:-1px}
+.gps-patrol-panel.minimized .gps-breadcrumb-row{display:none!important}
+
+/* Keep rotated-map UI readable and tap targets aligned better on mobile. */
+.leaflet-container.map-heading-up .leaflet-tile-pane,
+.leaflet-container.map-heading-up .leaflet-overlay-pane,
+.leaflet-container.map-heading-up .leaflet-shadow-pane,
+.leaflet-container.map-heading-up .leaflet-marker-pane,
+.leaflet-container.map-heading-up .leaflet-tooltip-pane,
+.leaflet-container.map-heading-up .leaflet-popup-pane{transition:transform .25s linear;backface-visibility:hidden;transform-style:preserve-3d}
+.leaflet-container.map-heading-up .asset-dot,
+.leaflet-container.map-heading-up .asset-dot-wrap,
+.leaflet-container.map-heading-up .asset-dot-num,
+.leaflet-container.map-heading-up .user-dot,
+.leaflet-container.map-heading-up .measure-dot,
+.leaflet-container.map-heading-up .pin-drop-marker,
+.leaflet-container.map-heading-up .gps-ping-marker{transform:rotate(var(--map-counter-rotation,0deg));transform-origin:center center;backface-visibility:hidden}
+.leaflet-container.map-heading-up .leaflet-tooltip{transform:rotate(var(--map-counter-rotation,0deg));transform-origin:center center;backface-visibility:hidden}
+.leaflet-container.map-heading-up .leaflet-popup-content-wrapper{transform:rotate(var(--map-counter-rotation,0deg));transform-origin:center center;backface-visibility:hidden}
+.leaflet-container.map-heading-up .leaflet-popup-tip-container{display:none}
+.leaflet-container.map-heading-up .leaflet-marker-icon,.leaflet-container.map-heading-up .leaflet-interactive{touch-action:manipulation}
+
+.pin-drop-leaflet-icon{background:transparent!important;border:0!important}
+.pin-drop-marker{width:34px;height:44px;position:relative;filter:drop-shadow(0 5px 10px rgba(0,0,0,.34));pointer-events:none}
+.pin-drop-marker:before{content:"";position:absolute;left:5px;top:1px;width:24px;height:24px;background:#f07800;border:4px solid #fffaf0;border-radius:50% 50% 50% 0;transform:rotate(-45deg);box-shadow:0 0 0 2px rgba(31,59,37,.16)}
+.pin-drop-marker span{position:absolute;left:13px;top:9px;width:8px;height:8px;background:#fffaf0;border-radius:50%;z-index:2}
+.pin-drop-popup .popup-actions{display:grid;grid-template-columns:1fr;gap:7px;margin-top:8px}
+.pin-drop-popup .popup-btn{display:block;text-align:center;text-decoration:none;border:1px solid rgba(31,59,37,.22);border-radius:12px;background:linear-gradient(180deg,#fffaf0,#efe4ca);color:var(--field-green);font-weight:1000;padding:9px 8px;font-size:12px}
+.pin-drop-popup small{display:block;margin-top:7px;color:#53634e;font-weight:850;line-height:1.25}
+@media(max-height:650px){.gps-breadcrumb-row button{padding:8px 5px;min-height:38px}}
+
+/* myMap-V3.1.102 pin drop + measuring snap fix */
+.leaflet-container.measure-mode{cursor:crosshair;}
+.measure-dot.snapped{border-color:#f07800;box-shadow:0 0 0 4px rgba(240,120,0,.22),0 8px 18px rgba(0,0,0,.18)}
+.leaflet-container.map-heading-up .measure-tooltip{transform:rotate(var(--map-counter-rotation,0deg));transform-origin:center center;}
+
+/* v3.1.103 better pin drop system */
+.pin-drop-marker.saved:before{background:#1f6f7a;box-shadow:0 0 0 2px rgba(31,59,37,.18),0 0 0 8px rgba(31,111,122,.13)}
+.pin-drop-marker.temp:before{background:#f07800;box-shadow:0 0 0 2px rgba(31,59,37,.16),0 0 0 8px rgba(240,120,0,.12)}
+.pin-drop-popup .pin-comment-label{display:grid;gap:5px;margin-top:8px;color:var(--field-green-deep);font-weight:950;font-size:11px}
+.pin-drop-popup textarea.pin-drop-comment{width:100%;min-height:70px;resize:vertical;border:1px solid rgba(31,59,37,.24);border-radius:12px;background:#fffaf0;color:#263924;font:850 12px/1.25 system-ui,-apple-system,Segoe UI,sans-serif;padding:9px;box-shadow:inset 0 1px 2px rgba(31,59,37,.08)}
+.pin-drop-popup .popup-btn.primary{background:linear-gradient(180deg,var(--field-green-2),var(--field-green));color:var(--field-cream-2);border-color:rgba(31,59,37,.38)}
+.pin-drop-popup .popup-btn.danger{background:linear-gradient(180deg,#fff1e9,#ffd6c9);color:#8c2d16;border-color:rgba(140,45,22,.22)}
+
+/* v3.1.104: keep Tools panel contents visible on Samsung/Android fixed panels. */
+.tools-panel .data-view,
+.tools-panel .data-section,
+.tools-panel .data-card,
+.tools-panel .section-drop,
+.tools-panel .data-action-grid,
+.tools-panel .gps-tools-grid{
+  content-visibility:visible!important;
+  contain-intrinsic-size:auto!important;
+}
+.tools-panel .tools-body{min-height:160px!important;}
+#toolsBody{display:grid!important;gap:8px!important;visibility:visible!important;opacity:1!important;}
+.pin-drop-leaflet-icon{pointer-events:auto!important;}
+.pin-drop-leaflet-icon .pin-drop-marker{pointer-events:none!important;}
+.pin-drop-popup .popup-actions button{touch-action:manipulation;}
+
+/* myMap v3.1.105: force Tools body to render on Android and style pin manager */
+.tools-panel{z-index:820!important;}
+.tools-panel .tools-body{display:block!important;min-height:260px!important;background:rgba(255,250,240,.98)!important;}
+#toolsBody,.tools-panel .data-view{display:grid!important;gap:8px!important;min-height:40px!important;content-visibility:visible!important;contain:none!important;visibility:visible!important;opacity:1!important;}
+.tools-panel .data-section,.tools-panel .data-card,.tools-panel .section-drop,.tools-panel .data-action-grid,.tools-panel .gps-tools-grid{content-visibility:visible!important;contain:none!important;visibility:visible!important;opacity:1!important;}
+.tools-section{overflow:hidden!important;padding:0!important;}
+.pin-manager-list{display:grid;gap:7px;margin-top:8px;}
+.pin-manager-row{display:grid;grid-template-columns:minmax(0,1fr) 74px;gap:7px;align-items:center;border:1px solid rgba(31,59,37,.14);border-radius:12px;background:rgba(255,250,240,.82);padding:7px;}
+.pin-manager-row b{display:block;color:var(--field-green-deep);font-size:11.5px;line-height:1.15;}
+.pin-manager-row span{display:block;color:#53634e;font-weight:850;font-size:10.5px;line-height:1.2;overflow:hidden;text-overflow:ellipsis;}
+.pin-manager-row button{min-height:36px!important;padding:7px 6px!important;font-size:10.5px!important;}
+.pin-drop-popup .popup-actions{display:grid!important;grid-template-columns:1fr!important;gap:7px!important;}
+.pin-drop-popup .popup-actions button,.pin-drop-popup .popup-actions a{min-height:38px;touch-action:manipulation;}
+.pin-drop-leaflet-icon{pointer-events:auto!important;z-index:6500!important;}
+
+/* myMap v3.1.107: polished pin popup + marker matched to myMap icon */
+.pin-drop-leaflet-icon{background:transparent!important;border:0!important;pointer-events:auto!important;z-index:6600!important;}
+.pin-drop-marker{width:42px!important;height:54px!important;position:relative!important;background:url('../icons/pin-drop-mymap.png') center/contain no-repeat!important;filter:drop-shadow(0 6px 10px rgba(0,0,0,.34))!important;pointer-events:none!important;}
+.pin-drop-marker:before,.pin-drop-marker span{display:none!important;content:none!important;}
+.pin-drop-marker.saved,.pin-drop-marker.temp{background-image:url('../icons/pin-drop-mymap.png')!important;}
+.leaflet-container.map-heading-up .pin-drop-marker{transform:rotate(var(--map-counter-rotation,0deg));transform-origin:center center;backface-visibility:hidden;}
+.pin-drop-popup{width:min(330px,calc(100vw - 96px))!important;max-width:330px!important;padding:0!important;font-size:13px!important;line-height:1.25!important;color:#1d251f!important;}
+.pin-drop-popup .pin-drop-title-row{display:flex;align-items:center;justify-content:space-between;margin:0 0 14px!important;padding:0!important;}
+.pin-drop-popup .pin-drop-title-row h3{margin:0!important;font-size:22px!important;line-height:1.05!important;font-weight:1000!important;color:#20262a!important;letter-spacing:-.02em!important;}
+.pin-drop-popup .pin-detail-list{display:grid!important;gap:12px!important;margin:0 0 14px!important;}
+.pin-drop-popup .pin-detail-row{display:grid!important;grid-template-columns:36px minmax(0,1fr)!important;gap:11px!important;align-items:center!important;}
+.pin-drop-popup .pin-detail-ico{width:30px!important;height:30px!important;border-radius:999px!important;background:linear-gradient(180deg,#2b6b37,#174522)!important;color:#fffaf0!important;display:flex!important;align-items:center!important;justify-content:center!important;box-shadow:inset 0 1px 0 rgba(255,255,255,.25)!important;}
+.pin-drop-popup .pin-detail-ico svg{width:16px!important;height:16px!important;display:block!important;fill:none!important;stroke:currentColor!important;stroke-width:2.35!important;stroke-linecap:round!important;stroke-linejoin:round!important;}
+.pin-drop-popup .pin-detail-row b{display:block!important;margin:0 0 2px!important;color:#1f2a22!important;font-size:13px!important;font-weight:1000!important;letter-spacing:0!important;text-transform:none!important;}
+.pin-drop-popup .pin-detail-row span:not(.pin-detail-ico){display:block!important;color:#1f2a22!important;font-size:13px!important;font-weight:650!important;line-height:1.18!important;word-break:break-word!important;}
+.pin-drop-popup .pin-separator{height:1px!important;background:rgba(31,59,37,.16)!important;margin:8px 0 12px!important;}
+.pin-drop-popup .pin-comment-label{display:grid!important;gap:8px!important;margin:0 0 14px!important;color:#1f2a22!important;font-weight:1000!important;font-size:13px!important;}
+.pin-drop-popup textarea.pin-drop-comment{width:100%!important;min-height:82px!important;resize:vertical!important;border:1px solid rgba(31,59,37,.24)!important;border-radius:15px!important;background:rgba(255,250,240,.82)!important;color:#263924!important;font:850 13px/1.28 system-ui,-apple-system,Segoe UI,sans-serif!important;padding:13px 14px!important;box-shadow:inset 0 1px 2px rgba(31,59,37,.06)!important;outline:none!important;}
+.pin-drop-popup textarea.pin-drop-comment::placeholder{color:#6d7370!important;font-weight:900!important;}
+.pin-drop-popup .popup-actions{display:grid!important;grid-template-columns:1fr!important;gap:10px!important;margin:0!important;}
+.pin-drop-popup .popup-btn{min-height:48px!important;display:flex!important;align-items:center!important;justify-content:center!important;gap:13px!important;text-align:center!important;text-decoration:none!important;border:1px solid rgba(31,59,37,.22)!important;border-radius:14px!important;background:linear-gradient(180deg,#fffaf0,#f4ead5)!important;color:#164421!important;font-weight:1000!important;padding:11px 12px!important;font-size:13px!important;box-shadow:inset 0 1px 0 rgba(255,255,255,.74)!important;touch-action:manipulation!important;}
+.pin-drop-popup .popup-btn svg{width:20px!important;height:20px!important;display:block!important;fill:none!important;stroke:currentColor!important;stroke-width:2.35!important;stroke-linecap:round!important;stroke-linejoin:round!important;flex:0 0 auto!important;}
+.pin-drop-popup .popup-btn.primary{min-height:52px!important;background:linear-gradient(180deg,#236c31,#123d1e)!important;color:#fffaf0!important;border-color:rgba(31,59,37,.42)!important;font-size:16px!important;box-shadow:inset 0 1px 0 rgba(255,255,255,.16),0 4px 10px rgba(0,0,0,.12)!important;}
+.pin-drop-popup .popup-btn.danger{background:linear-gradient(180deg,#fff3ee,#ffdcd2)!important;color:#9b2d18!important;border-color:rgba(155,45,24,.28)!important;}
+.pin-drop-popup .pin-helper-note{display:grid!important;grid-template-columns:28px minmax(0,1fr)!important;gap:10px!important;align-items:start!important;margin:15px 0 0!important;color:#5b625d!important;font-size:11.5px!important;font-weight:700!important;line-height:1.28!important;}
+.pin-drop-popup .pin-helper-note .pin-helper-ico{width:24px!important;height:24px!important;border:2px solid #5d6661!important;border-radius:999px!important;color:#5d6661!important;display:flex!important;align-items:center!important;justify-content:center!important;font-weight:1000!important;font-size:15px!important;line-height:1!important;}
+.pin-drop-popup small{display:block!important;margin:0!important;color:#5b625d!important;font-size:11.5px!important;font-weight:700!important;line-height:1.28!important;}
+@media(max-width:420px){.pin-drop-popup{width:min(300px,calc(100vw - 92px))!important}.pin-drop-popup .pin-drop-title-row h3{font-size:20px!important}.pin-drop-popup .popup-btn{min-height:46px!important}.pin-drop-popup textarea.pin-drop-comment{min-height:76px!important}}
+@media(max-height:720px){.pin-drop-popup .pin-detail-list{gap:9px!important}.pin-drop-popup textarea.pin-drop-comment{min-height:66px!important}.pin-drop-popup .popup-actions{gap:8px!important}.pin-drop-popup .popup-btn{min-height:42px!important}.pin-drop-popup .pin-helper-note{margin-top:10px!important}}
+
+
+/* myMap v3.1.108: compact/fixed pin popup to match final mobile mockup */
+.pin-drop-popup{
+  width:min(286px,calc(100vw - 112px))!important;
+  max-width:286px!important;
+  padding:0!important;
+  font-size:12.5px!important;
+  line-height:1.22!important;
+  color:#20262a!important;
+  overflow:hidden!important;
+}
+.pin-drop-popup .pin-drop-title-row{margin:0 0 12px!important;min-height:0!important;}
+.pin-drop-popup .pin-drop-title-row h3{font-size:20px!important;line-height:1.08!important;font-weight:1000!important;letter-spacing:-.02em!important;}
+.pin-drop-popup .pin-detail-list{gap:10px!important;margin:0 0 12px!important;}
+.pin-drop-popup .pin-detail-row{grid-template-columns:30px minmax(0,1fr)!important;gap:10px!important;align-items:center!important;min-height:30px!important;}
+.pin-drop-popup .pin-detail-ico{width:26px!important;height:26px!important;min-width:26px!important;min-height:26px!important;}
+.pin-drop-popup .pin-detail-ico svg{width:14px!important;height:14px!important;stroke-width:2.45!important;}
+.pin-drop-popup .pin-detail-row b{font-size:12.5px!important;line-height:1.12!important;margin:0 0 2px!important;}
+.pin-drop-popup .pin-detail-row span:not(.pin-detail-ico){font-size:12.2px!important;line-height:1.16!important;font-weight:650!important;}
+.pin-drop-popup .pin-separator{margin:8px 0 10px!important;}
+.pin-drop-popup .pin-comment-label{gap:7px!important;margin:0 0 12px!important;font-size:12.5px!important;line-height:1.12!important;}
+.pin-drop-popup textarea.pin-drop-comment{min-height:66px!important;max-height:92px!important;border-radius:14px!important;font:850 12.5px/1.24 system-ui,-apple-system,Segoe UI,sans-serif!important;padding:11px 12px!important;}
+.pin-drop-popup .popup-actions{gap:8px!important;}
+.pin-drop-popup .popup-btn{min-height:42px!important;border-radius:13px!important;font-size:12.2px!important;padding:9px 10px!important;gap:10px!important;line-height:1.12!important;}
+.pin-drop-popup .popup-btn svg{width:18px!important;height:18px!important;stroke-width:2.35!important;}
+.pin-drop-popup .popup-btn.primary{min-height:46px!important;font-size:14.5px!important;}
+.pin-drop-popup .pin-helper-note{grid-template-columns:24px minmax(0,1fr)!important;gap:8px!important;margin:12px 0 0!important;font-size:10.8px!important;line-height:1.24!important;}
+.pin-drop-popup .pin-helper-note .pin-helper-ico{width:20px!important;height:20px!important;font-size:13px!important;border-width:1.7px!important;}
+.pin-drop-popup small{font-size:10.8px!important;line-height:1.24!important;}
+.leaflet-popup-content:has(.pin-drop-popup){margin:8px!important;max-height:min(70vh,590px)!important;overflow:auto!important;}
+.leaflet-popup-content-wrapper:has(.pin-drop-popup){border-radius:18px!important;max-height:min(72vh,610px)!important;}
+.leaflet-popup-tip-container:has(+ .leaflet-popup-content-wrapper .pin-drop-popup){display:block!important;}
+@media(max-width:420px){
+  .pin-drop-popup{width:min(280px,calc(100vw - 104px))!important;max-width:280px!important;}
+  .pin-drop-popup .pin-drop-title-row h3{font-size:19px!important;}
+  .pin-drop-popup .pin-detail-list{gap:9px!important;}
+  .pin-drop-popup textarea.pin-drop-comment{min-height:62px!important;}
+  .pin-drop-popup .popup-btn{min-height:40px!important;font-size:12px!important;}
+  .pin-drop-popup .popup-btn.primary{min-height:44px!important;font-size:14px!important;}
+  .pin-drop-popup .pin-helper-note{font-size:10.3px!important;}
+  .pin-drop-popup small{font-size:10.3px!important;}
+}
+@media(max-height:760px){
+  .pin-drop-popup .pin-drop-title-row{margin-bottom:10px!important;}
+  .pin-drop-popup .pin-detail-list{gap:8px!important;margin-bottom:9px!important;}
+  .pin-drop-popup textarea.pin-drop-comment{min-height:56px!important;}
+  .pin-drop-popup .popup-actions{gap:7px!important;}
+  .pin-drop-popup .popup-btn{min-height:38px!important;padding-top:8px!important;padding-bottom:8px!important;}
+  .pin-drop-popup .popup-btn.primary{min-height:42px!important;}
+  .pin-drop-popup .pin-helper-note{margin-top:9px!important;}
+}
