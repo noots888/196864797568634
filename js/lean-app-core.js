@@ -1,5 +1,5 @@
 var App={
-  version:'mymap-v3-1-99_rotate_toggle',
+  version:'mymap-v3-1-109_dx_hv_spatial_match',
   versionShort:'myMap' ,
   baseLock:{name:'myMap',intent:'Builds connected circuit paths from exact imported line/nameplate references, not guessed route stubs or hardcoded data.'},
   schema:{parser:'map-app-v3-1-4-parser-v13-material-category-v1',database:'file-chunk-v2',searchIndex:'pass10-reference-recovery-v2-polepath-only',spatialIndex:'grid-v1'},
@@ -25,7 +25,7 @@ var UI={
   refreshFiles:function(){this.refreshCounts();},
   refreshAll:function(){this.refreshCounts(); window.LeanMapApp?.renderCircuitList?.();},
   applyMapFilters:function(){},
-  async handleFiles(files){const list=Array.from(files||[]).filter(Boolean); if(!list.length)return; try{this.progress(true,'Importing files…',`${list.length} file(s) selected`,2); const res=await ImportEngine.importFiles(list); if(res?.needsFullRebuild){await (SearchEngine.rebuildAsync?SearchEngine.rebuildAsync('Rebuilding data index'):SearchEngine.rebuild());} this.refreshAll(); window.LeanMapApp?.openCircuitPicker?.(); const skipped=Number(res?.skippedUnchanged||0); const imported=Number(res?.imported||0); if(skipped&&skipped>=list.length&&!imported)this.toast('No changed files found. Existing indexed data kept.'); else this.toast(`Imported ${imported.toLocaleString()} assets from ${(res.files||[]).length||list.length} file(s)${skipped?` · ${skipped} unchanged skipped`:''}.`);}
+  async handleFiles(files){const list=Array.from(files||[]).filter(Boolean); if(!list.length)return; try{this.progress(true,'Importing files…',`${list.length} file(s) selected`,2); const res=await ImportEngine.importFiles(list); if(res?.needsFullRebuild){await (SearchEngine.rebuildAsync?SearchEngine.rebuildAsync('Rebuilding data index'):SearchEngine.rebuild());} this.refreshAll(); window.LeanMapApp?.renderCircuitList?.(); window.LeanMapApp?.closeCircuitPicker?.(); const skipped=Number(res?.skippedUnchanged||0); const imported=Number(res?.imported||0); if(skipped&&skipped>=list.length&&!imported)this.toast('No changed files found. Existing indexed data kept.'); else this.toast(`Imported ${imported.toLocaleString()} assets from ${(res.files||[]).length||list.length} file(s)${skipped?` · ${skipped} unchanged skipped`:''}.`);}
     catch(err){Diagnostics.capture(err); this.toast(err?.name==='AbortError'?'Import cancelled.':'Import failed.');}
     finally{this.progress(false); const input=document.getElementById('fileInput'); if(input)input.value='';}}
 };

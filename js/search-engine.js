@@ -1344,7 +1344,7 @@ const SearchEngine={
     const raw=a.raw||{};
     const text=[a.kind,a.category,a.label,a.sourceFile,a.sourcePath,a.line,raw.asset_type,raw.asset_class,raw.category,raw.layer,raw.field_map_layer,raw.crossing_type,raw.render_hint,raw.source_layer,raw.name,raw.label]
       .map(v=>String(v||'')).join(' ').toUpperCase();
-    return /HV\s*CROSSING|HV_CROSSINGS|HVCROSSING|CROSSING_POINTS|TRANSMISSION_X_HV|FIELD_MAP_HV_CROSSINGS/.test(text);
+    return /DX\s*CROSSING|DX_CROSSINGS|TX[_\s-]*DX|HV\s*CROSSING|HV_CROSSINGS|HVCROSSING|CROSSING_POINTS|TRANSMISSION_X_(?:HV|HV_DISTRIBUTION|DISTRIBUTION)|FIELD_MAP_(?:DX|HV)_CROSSINGS/.test(text);
   },
   isUtilityAsset(a){
     return !!a&&/^utility-/i.test(String(a.kind||''));

@@ -24,7 +24,7 @@ const ImportEngine={
   },
   largeFileThreshold: 18 * 1024 * 1024,
   lastParseStats:null,
-  parserVersion:'parser40-cancellable-import-reader',
+  parserVersion:'parser41-dx-hv-crossing-sidecar',
   currentReader:null,
   currentStreamReader:null,
   formatBytes(n){
@@ -1374,7 +1374,7 @@ const ImportEngine={
   isHVCrossingRecord(raw={},fileName=''){
     const text=[fileName,raw.asset_type,raw.category,raw.layer,raw.field_map_layer,raw.crossing_type,raw.render_hint,raw.name,raw.NAME,raw.transmission_line,raw.hv_network]
       .map(v=>String(v||'')).join(' ').toUpperCase();
-    return /HV\s*CROSSING|HV_CROSSINGS|HVCROSSING|CROSSING_POINTS|TRANSMISSION_X_(?:HV|TRANSMISSION)|FIELD_MAP_(?:HV|TX|TRANSMISSION)_CROSSINGS|TRANSMISSION\s+CROSSING|TX\s+CROSSING/.test(text);
+    return /DX\s*CROSSING|DX_CROSSINGS|TX[_\s-]*DX|HV\s*CROSSING|HV_CROSSINGS|HVCROSSING|CROSSING_POINTS|TRANSMISSION_X_(?:HV|HV_DISTRIBUTION|DISTRIBUTION|TRANSMISSION)|FIELD_MAP_(?:DX|HV|TX|TRANSMISSION)_CROSSINGS|TRANSMISSION\s+CROSSING|TX\s+CROSSING|TX[_\s-]*CROSSING/.test(text);
   },
   normaliseRecord(rawIn,fileName,sourceType,path){
     const raw=this.normaliseRawRow(rawIn||{});
@@ -1623,7 +1623,7 @@ const ImportEngine={
     if(!asset||typeof asset!=='object')return asset;
     const keep={};
     const raw=asset.raw||{};
-    const keepKey=/^(objectid|id|gid|structure_id|trmsn_line_gis_label|structure_label|line_name|line_name_1|nameplate_id_1|pole_type|matrl_typ_desc|struc_typ_desc|sub_struc_desc|struc_cat_desc|pole_len_m|pole_height_m|np_dwg_no|latitude|longitude|pick_id|equip_name|kv|typ_cde|netwk_name|len_km|st_length_shape_|route_point_count|line_part|geometry_type|substation|abbreviation|owner|search_field|aer_nsp|substation_type|infrastructure|network|water_type|nominal_size|material|mainname|pressure_type|pressure_main_use|nominal_diameter|pipe_material|name|title_id|type|purpose|holder_1|road_name|common_usage_name|xing_no|xing_type|network_type|esa_type|hectares|bushforev|wst_epp|aw_wetl50|anca_50m|ramsar_50m|regnatest|scp_wetl50|tec|whp|drf|pressure|voltage|asset_class|asset_type|category|cable_type|utility_marked|utility_badges|utility_types|utility_radius_m|utility_markup_source|utility_detail_summary|utility_details|detail_.*|(gas|water|sewer|hv_dist|ug_cable|rail|pillar|esa|telco|other)_(pressure|kpa|maop|mop|voltage|kv|diameter|diam|size|material|network|purpose|holder|operator|owner|title|licence|license|cable|water|main|type|asset_id|name).*|nearby_.*|nearest_.*_m|count_.*|source_.*|ref_.*)$/i;
+    const keepKey=/^(objectid|id|gid|structure_id|trmsn_line_gis_label|structure_label|line_name|line_name_1|nameplate_id_1|pole_type|matrl_typ_desc|struc_typ_desc|sub_struc_desc|struc_cat_desc|pole_len_m|pole_height_m|np_dwg_no|latitude|longitude|lat|lon|lng|line|circuit|circuit_name|tx_line|transmission_line|transmission_circuit|crossing_type|original_crossing_type|crossing_kind|crossing_group|hv_network|hv_type|dx_network|dx_type|distribution_network|from_label|to_label|from_pole_no|to_pole_no|method|tx_source_segment|hv_source_segment|field_map_layer|source_layer|render_hint|import_layer|show_on_map|visible|pick_id|equip_name|kv|typ_cde|netwk_name|len_km|st_length_shape_|route_point_count|line_part|geometry_type|substation|abbreviation|owner|search_field|aer_nsp|substation_type|infrastructure|network|water_type|nominal_size|material|mainname|pressure_type|pressure_main_use|nominal_diameter|pipe_material|name|title|label|title_id|type|purpose|holder_1|road_name|common_usage_name|xing_no|xing_type|network_type|esa_type|hectares|bushforev|wst_epp|aw_wetl50|anca_50m|ramsar_50m|regnatest|scp_wetl50|tec|whp|drf|pressure|voltage|asset_class|asset_type|category|cable_type|utility_marked|utility_badges|utility_types|utility_radius_m|utility_markup_source|utility_detail_summary|utility_details|detail_.*|(gas|water|sewer|hv_dist|ug_cable|rail|pillar|esa|telco|other)_(pressure|kpa|maop|mop|voltage|kv|diameter|diam|size|material|network|purpose|holder|operator|owner|title|licence|license|cable|water|main|type|asset_id|name).*|nearby_.*|nearest_.*_m|count_.*|source_.*|ref_.*)$/i;
     for(const [k,v] of Object.entries(raw)){
       if(v===undefined||v===null)continue;
       if(!keepKey.test(k))continue;

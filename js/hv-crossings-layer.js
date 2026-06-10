@@ -1,6 +1,6 @@
 /* Field MAP HV/TX crossing sidecar layer.
    Built on V3.1.57 baseline. Crossings never enter App.assets.
-   V3.1.57X20: larger DX/TX button text, larger labelled 20-structure markers, full dots appear sooner on zoom; OH-only DX + direct TX crossings. */
+   V3.1.109: DX/HV spatial fallback for combined parent circuits (e.g. PIC-PNJ/BSN/KEM 81) plus direct TX crossings. */
 (function(){
   const KEY='FieldMAP.hvTxCrossings.sidecar.v1';
   const MAX_VIEW_DRAW=1200;
@@ -35,11 +35,12 @@
     const raw=rawOf(r);
     const text=[r?.kind,r?.category,r?.label,r?.sourceFile,raw.asset_type,raw.asset_class,raw.category,raw.layer,raw.field_map_layer,raw.crossing_type,raw.source_layer,raw.render_hint,raw.transmission_line,raw.tx_line,raw.tx_line_1,raw.tx_line_2,raw.line_1,raw.line_2,raw.hv_network,raw.name,raw.title,raw.label]
       .map(x=>String(x||'')).join(' ').toUpperCase();
-    return /HV\s*CROSSING|HV_CROSSINGS|CROSSING_POINTS|TRANSMISSION_X_(?:HV|TRANSMISSION)|FIELD_MAP_(?:HV|TX|TRANSMISSION)_CROSSINGS|TX\s*CROSSING|TRANSMISSION\s*CROSSING/.test(text);
+    return /DX\s*CROSSING|DX_CROSSINGS|TX[_\s-]*DX|HV\s*CROSSING|HV_CROSSINGS|CROSSING_POINTS|TRANSMISSION_X_(?:HV|HV_DISTRIBUTION|DISTRIBUTION|TRANSMISSION)|FIELD_MAP_(?:DX|HV|TX|TRANSMISSION)_CROSSINGS|TX\s*CROSSING|TRANSMISSION\s*CROSSING/.test(text);
   }
   function recType(raw){
-    const t=[raw.crossing_type,raw.asset_type,raw.asset_class,raw.category,raw.field_map_layer,raw.layer,raw.source_layer,raw.name,raw.title].map(v=>String(v||'')).join(' ').toUpperCase();
-    return /TRANSMISSION_X_TRANSMISSION|TRANSMISSION\s*[_X-]+\s*TRANSMISSION|TX\s*CROSSING|TRANSMISSION\s*CROSSING/.test(t)?'TX':'HV';
+    const t=[raw.crossing_type,raw.original_crossing_type,raw.crossing_kind,raw.crossing_group,raw.asset_type,raw.asset_class,raw.category,raw.field_map_layer,raw.layer,raw.source_layer,raw.name,raw.title,raw.label].map(v=>String(v||'')).join(' ').toUpperCase();
+    if(/TRANSMISSION_X_TRANSMISSION|TRANSMISSION\s*[_X-]+\s*TRANSMISSION|TX[_\s-]*TX|TX\s*CROSSING|TRANSMISSION\s*CROSSING/.test(t))return 'TX';
+    return 'HV'; // internal HV = DX/HV distribution crossing, shown as DX in the UI.
   }
   function isUndergroundHV(raw){
     const txt=[raw.hv_type,raw.HV_TYPE,raw.type,raw.TYPE,raw.network_type,raw.asset_type,raw.category,raw.layer,raw.hv_network,raw.name,raw.title,raw.label]
@@ -48,7 +49,7 @@
   }
   function isVisibleRecord(r){
     if(!r||!valid(r.lat,r.lon)||!r.line)return false;
-    if(r.type==='HV')return !isUndergroundHV({...rawOf(r),hv_type:r.hvType,hv_network:r.hv,title:r.title});
+    if(r.type==='HV')return true;
     return r.type==='TX';
   }
   function uniqueLines(vals){
@@ -77,12 +78,11 @@
     const raw=rawOf(r);
     const p=pointOf(raw,r); if(!p)return [];
     const type=recType(raw);
-    if(type==='HV'&&isUndergroundHV(raw))return []; // OH crossing indicator only: hide HVUG/underground.
     const lines=lineCandidates(raw,r); if(!lines.length)return [];
     const from=String(raw.from_label||raw.FROM_LABEL||raw.from_pole_no||raw.FROM_POLE_NO||raw.from||'').trim();
     const to=String(raw.to_label||raw.TO_LABEL||raw.to_pole_no||raw.TO_POLE_NO||raw.to||'').trim();
-    const hv=String(raw.hv_network||raw.HV_NETWORK||raw.network||raw.NETWORK||raw.hv_name||'').trim();
-    const hvType=String(raw.hv_type||raw.HV_TYPE||raw.type||raw.TYPE||'').trim();
+    const hv=String(raw.hv_network||raw.HV_NETWORK||raw.dx_network||raw.DX_NETWORK||raw.distribution_network||raw.DISTRIBUTION_NETWORK||raw.network||raw.NETWORK||raw.hv_name||'').trim();
+    const hvType=String(raw.hv_type||raw.HV_TYPE||raw.dx_type||raw.DX_TYPE||raw.type||raw.TYPE||'').trim();
     const method=String(raw.method||raw.METHOD||'').trim();
     const titleBase=String(raw.name||raw.title||raw.label||`${type} crossing`).trim();
     const out=[];
@@ -97,7 +97,28 @@
   }
   function makeRecord(r,sourceFile=''){return makeRecords(r,sourceFile)[0]||null;}
   function distKm(a,b){try{return SearchEngine?.distanceKm?.({lat:a.lat,lon:a.lon},{lat:b.lat,lon:b.lon})||0;}catch(e){const dy=(a.lat-b.lat)*111; const dx=(a.lon-b.lon)*111*Math.cos(((a.lat+b.lat)/2)*Math.PI/180); return Math.sqrt(dx*dx+dy*dy);}}
+  function circuitToken(line){const m=fmtLine(line).match(/\b(X\d|[A-Z]?\d{1,4}[A-Z0-9]{0,3})$/i); return m?String(m[1]||'').toUpperCase():'';}
+  function sameCircuitToken(a,b){const ta=circuitToken(a), tb=circuitToken(b); return !ta||!tb||ta===tb;}
   function bboxOfSeg(s){return {minLat:Math.min(s.a.lat,s.b.lat),maxLat:Math.max(s.a.lat,s.b.lat),minLon:Math.min(s.a.lon,s.b.lon),maxLon:Math.max(s.a.lon,s.b.lon)};}
+  function pointBBoxNearSeg(p,s,padKm=0.16){
+    const lat=(Number(p.lat)+Number(s.a.lat)+Number(s.b.lat))/3;
+    const padLat=padKm/110.574;
+    const padLon=padKm/(111.320*Math.max(0.18,Math.cos(lat*Math.PI/180)));
+    return !(p.lat<s.bbox.minLat-padLat||p.lat>s.bbox.maxLat+padLat||p.lon<s.bbox.minLon-padLon||p.lon>s.bbox.maxLon+padLon);
+  }
+  function pointToSegmentKm(p,s){
+    const lat0=((Number(p.lat)||0)+(Number(s.a.lat)||0)+(Number(s.b.lat)||0))/3*Math.PI/180;
+    const kx=111.320*Math.max(0.18,Math.cos(lat0)), ky=110.574;
+    const ax=Number(s.a.lon)*kx, ay=Number(s.a.lat)*ky;
+    const bx=Number(s.b.lon)*kx, by=Number(s.b.lat)*ky;
+    const px=Number(p.lon)*kx, py=Number(p.lat)*ky;
+    const vx=bx-ax, vy=by-ay;
+    const len2=vx*vx+vy*vy;
+    if(!Number.isFinite(len2)||len2<=1e-12)return Math.hypot(px-ax,py-ay);
+    let t=((px-ax)*vx+(py-ay)*vy)/len2;
+    t=Math.max(0,Math.min(1,t));
+    return Math.hypot(px-(ax+t*vx),py-(ay+t*vy));
+  }
   function bboxOverlap(a,b,pad=0){return !(a.maxLat+pad<b.minLat||a.minLat-pad>b.maxLat||a.maxLon+pad<b.minLon||a.minLon-pad>b.maxLon);}
   function expandBBox(box,p){return {minLat:box.minLat-p,maxLat:box.maxLat+p,minLon:box.minLon-p,maxLon:box.maxLon+p};}
   function angleDiff(s1,s2){
@@ -151,7 +172,7 @@
     return Array.from(new Set(out));
   }
   const Layer={
-    records:[], layer:null, activeCount:0, activeDxCount:0, activeTxCount:0, activeMode:'', activeLine:'', loaded:false, txCache:null,
+    records:[], layer:null, activeCount:0, activeDxCount:0, activeTxCount:0, activeMode:'', activeLine:'', loaded:false, txCache:null, spatialMatchCache:null,
     activeTypes:{HV:false,TX:false}, activeCircuitTypes:{}, lastScope:{mode:'none',line:''},
     circuitCountLine:'', circuitDxCount:0, circuitTxCount:0, circuitCountPending:false, circuitCountToken:0,
     init(){
@@ -232,7 +253,7 @@
       this.renderControls();
     },
     isCrossingAsset(r){return looksCrossing(r);},
-    isLikelyCrossingFile(name=''){return /FIELD[_\s-]*MAP[_\s-]*(HV|TX|TRANSMISSION)[_\s-]*CROSSINGS|HV[_\s-]*CROSSINGS|TX[_\s-]*CROSSINGS|CROSSING_POINTS/i.test(String(name||''));},
+    isLikelyCrossingFile(name=''){return /FIELD[_\s-]*MAP[_\s-]*(DX|HV|TX|TRANSMISSION)[_\s-]*CROSSINGS|DX[_\s-]*CROSSINGS|HV[_\s-]*CROSSINGS|TX[_\s-]*CROSSINGS|CROSSING_POINTS/i.test(String(name||''));},
     async storeImported(records=[],sourceFile='',meta={}){
       await this.loadStore();
       const src=String(sourceFile||'');
@@ -255,7 +276,7 @@
     async migrateStoredAssetCrossings(){return {moved:0};},
     stats(){const total=(this.records||[]).length; const hv=this.records.filter(r=>r.type==='HV').length; const tx=this.records.filter(r=>r.type==='TX').length; const txSource=!!(tx||this.hasTxGeometry()); return {total,hv,dx:hv,tx,txSource,active:this.activeCount||0,activeDx:!!this.activeTypes.HV,activeTx:!!this.activeTypes.TX,mode:this.activeMode||'',line:this.activeLine||''};},
     iconFor(r){const cls=r.type==='TX'?'tx':'hv'; const label=r.type==='TX'?'TX':'DX'; return L.divIcon({className:'',html:`<div class="hvtx-crossing-icon ${cls}">${label}</div>`,iconSize:[42,42],iconAnchor:[21,21],popupAnchor:[0,-21]});},
-    popupHtml(r){const gm=`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(Number(r.lat).toFixed(7)+','+Number(r.lon).toFixed(7))}`; return `<div class="hvtx-popup"><b>${r.type==='TX'?'TX crossing':'DX OH crossing'}</b><div class="row"><span>Line</span><strong>${esc(r.line)}</strong></div>${r.otherLine?`<div class="row"><span>Other</span><strong>${esc(r.otherLine)}</strong></div>`:''}${Array.isArray(r.otherLines)&&r.otherLines.length?`<div class="row"><span>Other</span><strong>${esc(r.otherLines.join(', '))}</strong></div>`:''}${r.hv?`<div class="row"><span>Network</span><strong>${esc(r.hv)}</strong></div>`:''}${r.hvType?`<div class="row"><span>Type</span><strong>${esc(r.hvType)}</strong></div>`:''}${(r.from||r.to)?`<div class="row"><span>Between</span><strong>${esc([r.from,r.to].filter(Boolean).join(' → '))}</strong></div>`:''}${r.method?`<div class="row"><span>Method</span><strong>${esc(r.method)}</strong></div>`:''}<a href="${gm}" target="_blank" rel="noopener">Google Maps</a></div>`;},
+    popupHtml(r){const gm=`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(Number(r.lat).toFixed(7)+','+Number(r.lon).toFixed(7))}`; return `<div class="hvtx-popup"><b>${r.type==='TX'?'TX crossing':'DX / HV crossing'}</b><div class="row"><span>Line</span><strong>${esc(r.line)}</strong></div>${r.otherLine?`<div class="row"><span>Other</span><strong>${esc(r.otherLine)}</strong></div>`:''}${Array.isArray(r.otherLines)&&r.otherLines.length?`<div class="row"><span>Other</span><strong>${esc(r.otherLines.join(', '))}</strong></div>`:''}${r.hv?`<div class="row"><span>Network</span><strong>${esc(r.hv)}</strong></div>`:''}${r.hvType?`<div class="row"><span>Type</span><strong>${esc(r.hvType)}</strong></div>`:''}${(r.from||r.to)?`<div class="row"><span>Between</span><strong>${esc([r.from,r.to].filter(Boolean).join(' → '))}</strong></div>`:''}${r.method?`<div class="row"><span>Method</span><strong>${esc(r.method)}</strong></div>`:''}<a href="${gm}" target="_blank" rel="noopener">Google Maps</a></div>`;},
     activeTypeList(){const out=[]; if(this.activeTypes.HV)out.push('HV'); if(this.activeTypes.TX)out.push('TX'); return out;},
     filterTypes(list=[],types){const set=new Set(normTypes(types||this.activeTypeList())); return (list||[]).filter(r=>isVisibleRecord(r)&&set.has(r.type));},
     selKey(type,line){return `${String(type||'').toUpperCase()==='TX'?'TX':'HV'}|${compact(fmtLine(line))}`;},
@@ -286,13 +307,79 @@
       const clean=(list||[]).filter(isVisibleRecord);
       for(const r of clean){
         const m=L.marker([Number(r.lat),Number(r.lon)],{icon:this.iconFor(r),zIndexOffset:7000,riseOnHover:true,title:`${r.type==='TX'?'TX':'DX'} crossing ${r.line}`}).bindPopup(()=>this.popupHtml(r),{maxWidth:300,autoPan:true,keepInView:true});
+        m.on('popupopen',()=>{clearTimeout(m._hvtxCloseTimer);m._hvtxCloseTimer=setTimeout(()=>{try{m.closePopup();}catch(e){}},3000);});
         this.layer.addLayer(m);
       }
       this.activeCount=clean.length; this.activeDxCount=clean.filter(r=>r.type==='HV').length; this.activeTxCount=clean.filter(r=>r.type==='TX').length; this.activeMode=mode; this.activeLine=line||''; this.renderControls();
       return clean.length;
     },
     clearActive(opts={}){try{this.layer?.clearLayers?.();}catch(e){} this.activeCircuitTypes={}; this.activeTypes={HV:false,TX:false}; this.activeCount=0; this.activeDxCount=0; this.activeTxCount=0; this.activeMode=''; this.activeLine=''; this.renderControls(); if(!opts.silent)UI?.toast?.('Crossings hidden.');},
-    matchesForLine(line){const wanted=fmtLine(line); if(!wanted)return []; return (this.records||[]).filter(r=>isVisibleRecord(r)&&lineMatches(wanted,r.line));},
+    spatialSegmentsForLine(line){
+      const wanted=fmtLine(line); if(!wanted)return [];
+      const segs=[]; const addSeg=(a,b,source='spatial-route')=>{
+        if(!valid(a?.lat,a?.lon)||!valid(b?.lat,b?.lon))return;
+        const d=distKm(a,b); if(!Number.isFinite(d)||d<=0||d>7)return;
+        const sg={line:wanted,a:{lat:Number(a.lat),lon:Number(a.lon)},b:{lat:Number(b.lat),lon:Number(b.lon)},source};
+        sg.bbox=bboxOfSeg(sg); segs.push(sg);
+      };
+      try{
+        const pathSegs=SearchEngine?.circuitPathSegments?.(wanted)||SearchEngine?.circuitPathSegments?.(line)||[];
+        for(const path of pathSegs||[]){
+          const pts=(path||[]).map(p=>Array.isArray(p)?{lat:Number(p[0]),lon:Number(p[1])}:p).filter(p=>valid(p?.lat,p?.lon));
+          for(let i=0;i<pts.length-1;i++)addSeg(pts[i],pts[i+1],'circuit-path-index');
+        }
+      }catch(e){}
+      if(!segs.length){
+        try{for(const sg of this.segsFromPoints(wanted,this.pointsForGroup(this.lineGroupFor(wanted))||[])||[])segs.push(sg);}catch(e){}
+      }
+      if(!segs.length){
+        try{
+          for(const r of MapEngine?.currentCircuitRoutes||[]){
+            const rawLine=r?.line||r?.label||r?.circuit||r?.name||'';
+            if(rawLine&&!lineMatches(wanted,rawLine))continue;
+            const coords=Array.isArray(r?.routeCoords)?r.routeCoords:[];
+            const pts=coords.map(c=>Array.isArray(c)?{lat:Number(c[0]),lon:Number(c[1])}:c).filter(p=>valid(p?.lat,p?.lon));
+            for(let i=0;i<pts.length-1;i++)addSeg(pts[i],pts[i+1],'current-route');
+          }
+        }catch(e){}
+      }
+      const out=[]; const seen=new Set();
+      for(const sg of segs){const k=[sg.a.lat.toFixed(6),sg.a.lon.toFixed(6),sg.b.lat.toFixed(6),sg.b.lon.toFixed(6)].join('|'); if(!seen.has(k)){seen.add(k);out.push(sg);}}
+      return out;
+    },
+    spatialDxMatchesForLine(line){
+      const wanted=fmtLine(line); if(!wanted)return [];
+      const stamp=[wanted,(this.records||[]).length,SearchEngine?.lineMap?.size||0,App?.assets?.length||0,MapEngine?.currentCircuitRoutes?.length||0].join('|');
+      if(this.spatialMatchCache?.stamp===stamp)return this.spatialMatchCache.list||[];
+      const segs=this.spatialSegmentsForLine(wanted);
+      const out=[]; const seen=new Set();
+      if(segs.length){
+        const maxKm=0.16; // 160 m: enough for simplified mobile line paths, tight enough to avoid nearby unrelated crossings.
+        for(const r of this.records||[]){
+          if(!isVisibleRecord(r)||r.type!=='HV'||!sameCircuitToken(wanted,r.line))continue;
+          const p={lat:Number(r.lat),lon:Number(r.lon)};
+          for(const sg of segs){
+            if(!pointBBoxNearSeg(p,sg,maxKm))continue;
+            if(pointToSegmentKm(p,sg)<=maxKm){const k=crossKey(r)||r.id; if(!seen.has(k)){seen.add(k); out.push(r);} break;}
+          }
+        }
+      }
+      this.spatialMatchCache={stamp,list:out};
+      if(out.length){try{Diagnostics?.log?.('DX/HV spatial fallback',`${wanted}: ${out.length} crossing point(s) matched by route proximity`);}catch(e){}}
+      return out;
+    },
+    matchesForLine(line){
+      const wanted=fmtLine(line); if(!wanted)return [];
+      const exact=(this.records||[]).filter(r=>isVisibleRecord(r)&&lineMatches(wanted,r.line));
+      // Most DX/HV crossing files are keyed by exact circuit name. Some field circuits are loaded under a
+      // combined/parent display name (example: PIC-PNJ/BSN/KEM 81) while the crossing points were created
+      // from the physical route section names. When exact line matching finds no DX/HV points, fall back to a
+      // conservative spatial match against the currently indexed circuit route so DX/HV markers still appear.
+      const hasHv=exact.some(r=>r.type==='HV');
+      if(hasHv)return this.dedupeList(exact);
+      const spatial=this.spatialDxMatchesForLine(wanted);
+      return this.dedupeList(exact.concat(spatial));
+    },
     dedupeList(list=[]){
       const out=[]; const seen=new Set();
       for(const r of list||[]){if(!isVisibleRecord(r))continue; const k=crossKey(r)||r.id; if(seen.has(k))continue; seen.add(k); out.push(r);} 
@@ -547,7 +634,7 @@
       if(!opts.silent){
         const dx=list.filter(r=>r.type==='HV').length, tx=list.filter(r=>r.type==='TX').length;
         const scope=lines.length===1?` for ${lines[0]}`:` for ${lines.length} selected circuits`;
-        if(count)UI?.toast?.(`${count.toLocaleString()} crossing(s) shown${scope}: ${dx} DX OH, ${tx} TX.`);
+        if(count)UI?.toast?.(`${count.toLocaleString()} crossing(s) shown${scope}: ${dx} DX/HV, ${tx} TX.`);
         else UI?.toast?.(`No selected DX/TX crossing points matched${scope}.`);
       }
       return count;
@@ -559,7 +646,7 @@
       if(!zoomOkForCrossings()){UI?.toast?.('Zoom in closer to show DX/TX crossing indicators.'); return 0;}
       const st=this.stats();
       if(t==='TX'&&!st.txSource){UI?.toast?.('No TX line/crossing data found. Import a transmission pole/structure file or TX crossing point file.'); this.renderControls(); return 0;}
-      if(t==='HV'&&!st.hv){UI?.toast?.('No DX/OH HV crossing points imported.'); this.renderControls(); return 0;}
+      if(t==='HV'&&!st.hv){UI?.toast?.('No DX/HV crossing points imported.'); this.renderControls(); return 0;}
       const k=this.selKey(t,l);
       if(this.activeCircuitTypes[k])delete this.activeCircuitTypes[k]; else this.activeCircuitTypes[k]=true;
       this.syncGlobalActiveFlags();
@@ -587,7 +674,7 @@
       }
       const list=this.filterTypes(base,types);
       const count=this.draw(list,'circuit',lines.join(' + '));
-      if(!opts.silent){const dx=list.filter(r=>r.type==='HV').length, tx=list.filter(r=>r.type==='TX').length; const scope=lines.length===1?lines[0]:`${lines.length} selected circuits`; UI?.toast?.(count?`${count.toLocaleString()} crossing(s) shown for ${scope}: ${dx} DX OH, ${tx} TX.`:`No DX OH/TX crossings matched ${scope}.`);}
+      if(!opts.silent){const dx=list.filter(r=>r.type==='HV').length, tx=list.filter(r=>r.type==='TX').length; const scope=lines.length===1?lines[0]:`${lines.length} selected circuits`; UI?.toast?.(count?`${count.toLocaleString()} crossing(s) shown for ${scope}: ${dx} DX/HV, ${tx} TX.`:`No DX/HV/TX crossings matched ${scope}.`);}
       return count;
     },
     async showForCircuitFull(line,opts={}){return this.showForCircuit(line,opts);},
@@ -630,7 +717,7 @@
       const list=this.filterTypes(base,types);
       this.lastScope={mode:MapEngine?.currentCircuit?'circuit':'view',line:fmtLine(MapEngine?.currentCircuit||'')};
       const count=this.draw(list,this.lastScope.mode,this.lastScope.line);
-      if(!opts.silent){const dx=list.filter(r=>r.type==='HV').length, tx=list.filter(r=>r.type==='TX').length; UI?.toast?.(count?`${count.toLocaleString()} crossing(s) shown in current map view: ${dx} DX OH, ${tx} TX.`:'No DX OH/TX crossings inside the current map view.');}
+      if(!opts.silent){const dx=list.filter(r=>r.type==='HV').length, tx=list.filter(r=>r.type==='TX').length; UI?.toast?.(count?`${count.toLocaleString()} crossing(s) shown in current map view: ${dx} DX/HV, ${tx} TX.`:'No DX/HV/TX crossings inside the current map view.');}
       return count;
     },
     async onCircuitLoaded(line,opts={}){
@@ -669,7 +756,7 @@
         const dxActive=!!this.activeCircuitTypes[this.selKey('HV',line)]&&zoomOkForCrossings();
         const txActive=!!this.activeCircuitTypes[this.selKey('TX',line)]&&zoomOkForCrossings();
         const short=esc(String(line||'').replace(/\s+/g,' '));
-        return `<div class="hvtx-circuit-row" data-line="${esc(line)}"><button class="hvtx-toggle-btn ${dxActive?'active':''} ${!st.hv?'empty':''}" data-cross-type="HV" data-cross-line="${esc(line)}" type="button" title="DX OH crossings on ${short}"><span class="hvtx-type">DX</span><span class="hvtx-line">${short}</span><span class="hvtx-count">${dxCount}</span></button><button class="hvtx-toggle-btn ${txActive?'active':''} ${!st.txSource?'empty':''}" data-cross-type="TX" data-cross-line="${esc(line)}" type="button" title="Direct TX crossings on ${short}"><span class="hvtx-type">TX</span><span class="hvtx-line">${short}</span><span class="hvtx-count">${txCount}</span></button></div>`;
+        return `<div class="hvtx-circuit-row" data-line="${esc(line)}"><button class="hvtx-toggle-btn ${dxActive?'active':''} ${!st.hv?'empty':''}" data-cross-type="HV" data-cross-line="${esc(line)}" type="button" title="DX/HV crossings on ${short}"><span class="hvtx-type">DX</span><span class="hvtx-line">${short}</span><span class="hvtx-count">${dxCount}</span></button><button class="hvtx-toggle-btn ${txActive?'active':''} ${!st.txSource?'empty':''}" data-cross-type="TX" data-cross-line="${esc(line)}" type="button" title="Direct TX crossings on ${short}"><span class="hvtx-type">TX</span><span class="hvtx-line">${short}</span><span class="hvtx-count">${txCount}</span></button></div>`;
       };
       el.innerHTML=lines.length?lines.map(rowHtml).join(''):`<div class="hvtx-circuit-row"><button class="hvtx-toggle-btn empty" type="button"><span class="hvtx-type">DX</span><span class="hvtx-line">LOAD CIRCUIT</span><span class="hvtx-count">0</span></button><button class="hvtx-toggle-btn empty" type="button"><span class="hvtx-type">TX</span><span class="hvtx-line">LOAD CIRCUIT</span><span class="hvtx-count">0</span></button></div>`;
       el.querySelectorAll('[data-cross-type][data-cross-line]').forEach(btn=>{btn.addEventListener('click',()=>this.toggleCircuitType(btn.dataset.crossType,btn.dataset.crossLine));});
@@ -679,3 +766,5 @@
   };
   window.HVCrossingsLayer=Layer;
 })();
+
+/* myMap v3.1.109: DX/HV crossings can spatial-match combined/parent circuits where exact line names differ. */

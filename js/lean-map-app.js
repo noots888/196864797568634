@@ -85,12 +85,10 @@ var LeanMapApp={
     document.getElementById('plusBtn')?.addEventListener('click',()=>this.togglePlusMenu());
     document.getElementById('mapLayerBtn')?.addEventListener('click',()=>MapEngine.cycleBase());
     document.getElementById('nearbyBtn')?.addEventListener('click',()=>MapEngine.showNearbyAssets?.());
-    document.getElementById('gpsFollow')?.addEventListener('click',()=>MapEngine.locate());
+    document.getElementById('gpsFollow')?.addEventListener('click',()=>MapEngine.toggleGpsFollow());
     document.getElementById('gpsPanelCloseBtn')?.addEventListener('click',()=>MapEngine.hideGpsPanel());
-    document.getElementById('gpsPanelMinBtn')?.addEventListener('click',()=>MapEngine.toggleGpsPanelMinimized());
-    document.getElementById('gpsLocateModeBtn')?.addEventListener('click',()=>MapEngine.locate());
-    document.getElementById('gpsFollowModeBtn')?.addEventListener('click',()=>MapEngine.setGpsMode('follow',{toast:true,showPanel:true}));
-    document.getElementById('gpsTrackModeBtn')?.addEventListener('click',()=>MapEngine.setGpsMode('track',{toast:true,showPanel:true}));
+    document.getElementById('gpsFollowModeBtn')?.addEventListener('click',()=>{MapEngine.gpsMode='follow';MapEngine.updateGpsButton();MapEngine.showGpsPanel();MapEngine.startGpsWatch(false);try{localStorage.setItem('fieldMapGpsMode','follow');}catch(e){};UI?.toast?.('GPS follow mode.');});
+    document.getElementById('gpsStopFollowBtn')?.addEventListener('click',()=>MapEngine.stopGpsFollow(true));
     document.querySelectorAll('[data-gps-profile]').forEach(btn=>btn.addEventListener('click',()=>MapEngine.setGpsProfile(btn.dataset.gpsProfile||'walking')));
     document.getElementById('closeCircuitPicker')?.addEventListener('click',()=>this.closeCircuitPicker());
     document.getElementById('loadCircuitBtn')?.addEventListener('click',()=>this.loadSelectedCircuit());
@@ -269,10 +267,11 @@ var LeanMapApp={
     return cards+more;
   },
   renderDataTabs(){
+    if(this.dataCategory==='assets')this.dataCategory='summary';
     document.querySelectorAll('#dataCategoryTabs button[data-cat]').forEach(btn=>btn.classList.toggle('active',btn.dataset.cat===this.dataCategory));
   },
   showDataPanel(cat='summary'){
-    this.dataCategory=cat||'summary';
+    this.dataCategory=(cat==='assets'?'summary':(cat||'summary'));
     this.closePlusMenu();
     this.closeCircuitPicker();
     this.closeAssetSearch();
@@ -641,9 +640,11 @@ var LeanMapApp={
     const profile=MapEngine?.gpsProfile||'walking';
     const refsMode=String(MapEngine?.currentDisplay||'').toLowerCase();
     const referenceTools=`<div class="data-card"><b>Reference points</b><p>Show or hide depot and substation reference points without cluttering the main + menu.</p></div><div class="data-action-grid single"><button type="button" class="data-safe-btn ${refsMode==='all substations'?'active':''}" data-tools-reference-kind="substation">${refsMode==='all substations'?'Hide All Substations':'Show All Substations'}</button><button type="button" class="data-safe-btn ${refsMode==='all depots'?'active':''}" data-tools-reference-kind="depot">${refsMode==='all depots'?'Hide All Depots':'Show All Depots'}</button></div>`;
-    const gpsTools=`<div class="data-card"><b>GPS / Patrol mode</b><p>Select how the live GPS panel behaves. Heli mode switches to heading-based Tracking/Heli. Follow and Tracking/Heli both let you zoom or pan freely, then snap back after 5 seconds idle.</p><small>Uses the phone GPS. No separate GPS hardware required.</small></div><div class="gps-tools-grid"><button type="button" class="data-safe-btn ${profile==='walking'?'active':''}" data-tools-gps-profile="walking">Walking</button><button type="button" class="data-safe-btn ${profile==='driving'?'active':''}" data-tools-gps-profile="driving">Driving</button><button type="button" class="data-safe-btn ${profile==='helicopter'?'active':''}" data-tools-gps-profile="helicopter">Helicopter</button></div><div class="data-action-grid single"><button type="button" class="data-safe-btn" data-tools-start-gps="1">Start / show GPS panel</button><button type="button" class="data-safe-btn" data-tools-stop-follow="1">GPS locate / free scroll</button></div>`;
+    const gpsTools=`<div class="data-card"><b>GPS / Patrol mode</b><p>Select how the live GPS panel behaves. Heli mode keeps the map calmer, shows speed in km/h and knots, and keeps nearest/next structure details visible.</p><small>Uses the phone GPS. No separate GPS hardware required.</small></div><div class="gps-tools-grid"><button type="button" class="data-safe-btn ${profile==='walking'?'active':''}" data-tools-gps-profile="walking">Walking</button><button type="button" class="data-safe-btn ${profile==='driving'?'active':''}" data-tools-gps-profile="driving">Driving</button><button type="button" class="data-safe-btn ${profile==='helicopter'?'active':''}" data-tools-gps-profile="helicopter">Helicopter</button></div><div class="data-action-grid single"><button type="button" class="data-safe-btn" data-tools-start-gps="1">Start / show GPS panel</button><button type="button" class="data-safe-btn" data-tools-stop-follow="1">Stop follow only</button></div>`;
+    const measureTools=`<div class="data-card"><b>Measuring tool</b><p>Tap Measure distance, then tap two spots on the map. It snaps to nearby visible asset dots and leaves a temporary line and distance label until cleared.</p><small>Status: ${UI.esc(MapEngine?.measureStatusLabel?.()||'off')}</small></div><div class="data-action-grid single"><button type="button" class="data-safe-btn ${MapEngine?.measureMode?'active':''}" data-tools-measure-start="1">Measure distance</button><button type="button" class="data-safe-btn" data-tools-measure-clear="1">Clear measure</button></div>`;
+    const pinTools=`<div class="data-card"><b>Pin drops</b><p>Hold the map for 2 seconds to drop a pin. Save it with comments, nearest circuits, GPS location, date/time and Google Maps link.</p><small>Status: ${UI.esc(MapEngine?.pinDropStatusLabel?.()||'none saved')}</small></div><div class="data-action-grid single"><button type="button" class="data-safe-btn" data-tools-pins-show="1">Show saved pins</button><button type="button" class="data-safe-btn" data-tools-pins-hide="1">Hide saved pins</button><button type="button" class="data-safe-btn" data-tools-pins-export="1">Export saved pins</button><button type="button" class="data-danger-btn" data-tools-pins-clear="1">Clear saved pins</button></div>`;
     const crossingTools=`<div class="data-card"><b>HV / TX crossings</b><p>${Number(xs.total||0).toLocaleString()} imported · ${Number(xs.active||0).toLocaleString()} currently shown${line?` · current: ${UI.esc(line)}`:''}</p><small>Separate sidecar layer only. Does not enter pole/tower assets or search.</small></div><div class="data-action-grid single"><button type="button" class="data-safe-btn" data-tools-show-current-crossings="1">Show current circuit crossings</button><button type="button" class="data-safe-btn" data-tools-show-view-crossings="1">Show crossings in map view</button><button type="button" class="data-safe-btn" data-tools-hide-crossings="1">Hide crossings</button></div>`;
-    body.innerHTML=`${this.toolsSectionHtml('toolsReferences','Reference points',referenceTools,refsMode==='all substations'?'Substations shown':(refsMode==='all depots'?'Depots shown':'Closed'),false)}${this.toolsSectionHtml('toolsGps','GPS / Patrol mode',gpsTools,MapEngine?.gpsProfileLabel?.()||'Walking',false)}${this.toolsSectionHtml('toolsCrossings','HV / TX crossings',crossingTools,`${Number(xs.total||0).toLocaleString()} imported`,false)}`;
+    body.innerHTML=`${this.toolsSectionHtml('toolsMeasure','Measuring tool',measureTools,MapEngine?.measureStatusLabel?.()||'off',false)}${this.toolsSectionHtml('toolsPins','Pin drops',pinTools,MapEngine?.pinDropStatusLabel?.()||'none saved',false)}${this.toolsSectionHtml('toolsReferences','Reference points',referenceTools,refsMode==='all substations'?'Substations shown':(refsMode==='all depots'?'Depots shown':'Closed'),false)}${this.toolsSectionHtml('toolsGps','GPS / Patrol mode',gpsTools,MapEngine?.gpsProfileLabel?.()||'Walking',false)}${this.toolsSectionHtml('toolsCrossings','HV / TX crossings',crossingTools,`${Number(xs.total||0).toLocaleString()} imported`,false)}`;
     if(preserveScroll&&wrap){requestAnimationFrame(()=>{wrap.scrollTop=keep;});}
   },
   toolsSectionHtml(key,title,body,sub='',defaultOpen=false){
@@ -654,6 +655,18 @@ var LeanMapApp={
   async handleToolsClick(e){
     const section=e.target.closest?.('button[data-tools-section-key]');
     if(section){e.preventDefault();try{document.activeElement?.blur?.();}catch(_e){}const key=section.dataset.toolsSectionKey||'';this.toolsSectionOpen[key]=!this.toolsSectionOpen[key];this.renderToolsPanel(true);return;}
+    const measureStart=e.target.closest?.('button[data-tools-measure-start]');
+    if(measureStart){e.preventDefault();MapEngine?.startMeasureTool?.();this.closeToolsPanel();return;}
+    const measureClear=e.target.closest?.('button[data-tools-measure-clear]');
+    if(measureClear){e.preventDefault();MapEngine?.clearMeasure?.(true);this.renderToolsPanel(true);return;}
+    const pinsShow=e.target.closest?.('button[data-tools-pins-show]');
+    if(pinsShow){e.preventDefault();MapEngine?.showSavedPinDrops?.();this.renderToolsPanel(true);return;}
+    const pinsHide=e.target.closest?.('button[data-tools-pins-hide]');
+    if(pinsHide){e.preventDefault();MapEngine?.hideSavedPinDrops?.();this.renderToolsPanel(true);return;}
+    const pinsExport=e.target.closest?.('button[data-tools-pins-export]');
+    if(pinsExport){e.preventDefault();MapEngine?.exportSavedPinDrops?.();this.renderToolsPanel(true);return;}
+    const pinsClear=e.target.closest?.('button[data-tools-pins-clear]');
+    if(pinsClear){e.preventDefault();MapEngine?.clearSavedPinDrops?.();this.renderToolsPanel(true);return;}
     const ref=e.target.closest?.('button[data-tools-reference-kind]');
     if(ref){e.preventDefault();await this.toggleReferencePoints(ref.dataset.toolsReferenceKind||'substation');this.renderToolsPanel(true);return;}
     const prof=e.target.closest?.('button[data-tools-gps-profile]');
@@ -661,7 +674,7 @@ var LeanMapApp={
     const startGps=e.target.closest?.('button[data-tools-start-gps]');
     if(startGps){e.preventDefault();MapEngine?.showGpsPanel?.();MapEngine?.startGpsWatch?.(false);return;}
     const stopFollow=e.target.closest?.('button[data-tools-stop-follow]');
-    if(stopFollow){e.preventDefault();MapEngine?.locate?.();this.renderToolsPanel(true);return;}
+    if(stopFollow){e.preventDefault();MapEngine?.stopGpsFollow?.(true);this.renderToolsPanel(true);return;}
     const showCur=e.target.closest?.('button[data-tools-show-current-crossings]');
     if(showCur){e.preventDefault();HVCrossingsLayer?.showForCircuit?.(MapEngine?.currentCircuit||'').then(()=>this.renderToolsPanel(true));return;}
     const showView=e.target.closest?.('button[data-tools-show-view-crossings]');
@@ -1110,9 +1123,70 @@ var LeanMapApp={
     const last=App.lastImport||{};
     const idx=SearchEngine.indexStats||{};
     const speedStatus=`<div class="mini-row"><b>Startup map drawing</b><span>empty</span></div><div class="mini-row"><b>Search mode</b><span>indexed</span></div><div class="mini-row"><b>Indexed assets</b><span>${Number(idx.assetsIndexed||assets.length||0).toLocaleString()}</span></div><div class="mini-row"><b>Search tokens</b><span>${Number(idx.tokenCount||0).toLocaleString()}</span></div><div class="mini-row"><b>Last rebuild</b><span>${Number(idx.ms||0).toLocaleString()} ms</span></div>`;
-    const currentUi=`<p>Magnifying glass = circuit picker and Asset search. + = Clear Map Display, Tools, Substations/Depots, Conductors, Data manager, Import files, and Reset. Map starts empty until you load a circuit/search result.</p>`;
+    const kindRows=this.countsBy(assets,x=>x.kind||x.category||'Other').slice(0,18).map(([k,n])=>`<div class="mini-row"><b>${UI.esc(k)}</b><span>${n.toLocaleString()}</span></div>`).join('');
     const importInfo=`<div class="mini-row"><b>Time</b><span>${UI.esc(this.fmtDate(last.time)||'none this session')}</span></div><div class="mini-row"><b>Imported</b><span>${Number(last.totalImported||0).toLocaleString()} records</span></div><div class="mini-row"><b>Merged total</b><span>${Number(last.totalMerged||assets.length||0).toLocaleString()} assets</span></div><div class="mini-row"><b>Conductor spans</b><span>${Number(last.conductorSpans||stats.conductorSpanAssets||0).toLocaleString()}</span></div>`;
-    b.innerHTML=`<div class="stat-grid"><div><b>${files.length.toLocaleString()}</b><span>files</span></div><div><b>${assets.length.toLocaleString()}</b><span>assets</span></div><div><b>${stats.withGps.toLocaleString()}</b><span>mapped</span></div><div><b>${stats.circuits.toLocaleString()}</b><span>circuits</span></div></div>${this.sectionHtml('summarySpeed','Index / speed status',speedStatus,'mobile retrieval checks',true)}${this.sectionHtml('summaryUi','Current UI',currentUi,'map-first layout')}${this.sectionHtml('summaryImport','Last import',importInfo,'latest import counts')}`;
+    b.innerHTML=`<div class="stat-grid"><div><b>${files.length.toLocaleString()}</b><span>files</span></div><div><b>${assets.length.toLocaleString()}</b><span>assets</span></div><div><b>${stats.withGps.toLocaleString()}</b><span>mapped</span></div><div><b>${stats.circuits.toLocaleString()}</b><span>circuits</span></div></div>${this.sectionHtml('summarySpeed','Index / speed status',speedStatus,'mobile retrieval checks',true)}${this.sectionHtml('summaryAssetsByType','By asset type',kindRows||'<div class="tiny-note">No assets loaded.</div>','tap to open counts',true)}${this.sectionHtml('summaryImport','Last import',importInfo,'latest import counts')}`;
   }
 };
+
+
+/* myMap v3.1.106: minimised Tools sections + pin manager actions */
+(function(){
+  if(!window.LeanMapApp)return;
+  const APP=window.LeanMapApp;
+  const esc=function(v){try{return (window.UI&&UI.esc)?UI.esc(v):String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}catch(e){return String(v??'');}};
+  const safe=function(fn,fb){try{const v=fn();return v==null?fb:v;}catch(e){try{console.warn('myMap tools render fallback',e);}catch(_){} return fb;}};
+  const section=function(key,title,html,sub='',open=true){
+    const state=APP.toolsSectionOpen||{};
+    const has=Object.prototype.hasOwnProperty.call(state,key);
+    const isOpen=has?!!state[key]:!!open;
+    return `<div class="data-section collapsible-section tools-section"><button type="button" class="section-toggle" data-tools-section-key="${esc(key)}"><span class="pm-box">${isOpen?'−':'+'}</span><span><b>${esc(title)}</b>${sub?`<small>${esc(sub)}</small>`:''}</span></button>${isOpen?`<div class="section-drop">${html}</div>`:''}</div>`;
+  };
+  APP.openToolsPanel=function(){
+    try{this.closePlusMenu?.();this.closeCircuitPicker?.();this.closeResetPanel?.();this.closeConductorsPanel?.();document.getElementById('assetSearchPanel')?.classList.add('hidden');}catch(e){}
+    if(!this.toolsSectionOpen||typeof this.toolsSectionOpen!=='object')this.toolsSectionOpen={};
+    if(!Object.keys(this.toolsSectionOpen).length){this.toolsSectionOpen={toolsMeasure:false,toolsPins:false,toolsGps:false,toolsReferences:false,toolsCrossings:false};}
+    const panel=document.getElementById('toolsPanel');
+    panel?.classList.remove('hidden');
+    this.renderToolsPanel(false);
+    setTimeout(()=>this.renderToolsPanel(true),60);
+  };
+  APP.renderToolsPanel=function(preserveScroll=false){
+    const body=document.getElementById('toolsBody'); if(!body)return;
+    const wrap=document.querySelector('#toolsPanel .tools-body');
+    const keep=preserveScroll&&wrap?wrap.scrollTop:0;
+    if(!this.toolsSectionOpen||typeof this.toolsSectionOpen!=='object')this.toolsSectionOpen={};
+    const ME=window.MapEngine||{};
+    const HV=window.HVCrossingsLayer||{};
+    const xs=safe(()=>HV.stats?.(),{total:0,hv:0,tx:0,active:0,line:''})||{total:0,hv:0,tx:0,active:0,line:''};
+    const line=safe(()=>HV.currentLineLabel?.()||ME.currentCircuit||'',ME.currentCircuit||'');
+    const refsMode=String(safe(()=>ME.currentDisplay||'','')).toLowerCase();
+    const profile=String(safe(()=>ME.gpsProfile||'walking','walking'));
+    const measureStatus=safe(()=>ME.measureStatusLabel?.(),ME.measureMode?'active':'off')||'off';
+    const pinStatus=safe(()=>ME.pinDropStatusLabel?.(),(ME.savedPinDropCount?ME.savedPinDropCount():0)+' saved')||'none saved';
+    const gpsLabel=safe(()=>ME.gpsProfileLabel?.(),profile==='helicopter'?'Helicopter':profile==='driving'?'Driving':'Walking')||'Walking';
+    const tempPin=!!ME.pinDropMarker;
+    let savedList='';
+    try{
+      const arr=(ME.readSavedPinDrops?.()||[]).slice(0,8);
+      savedList=arr.length?`<div class="pin-manager-list">${arr.map(p=>{const lat=Number(p?.pin?.lat),lon=Number(p?.pin?.lon);const id=String(p?.id||'');return `<div class="pin-manager-row"><div><b>${esc(p?.localDateTime||'Saved pin')}</b><span>${Number.isFinite(lat)?lat.toFixed(5):''}, ${Number.isFinite(lon)?lon.toFixed(5):''}${p?.comments?' · '+esc(String(p.comments).slice(0,42)):''}</span></div><button type="button" class="data-danger-btn" data-tools-pin-delete="${esc(id)}">Delete</button></div>`;}).join('')}</div>`:'';
+    }catch(e){savedList='';}
+    const measureTools=`<div class="data-card"><b>Measuring tool</b><p>Tap Measure distance, then tap two points on the map. Snap-to finds the nearest visible asset dot.</p><small>Status: ${esc(measureStatus)}</small></div><div class="data-action-grid single"><button type="button" class="data-safe-btn ${ME.measureMode?'active':''}" data-tools-measure-start="1">Measure distance</button><button type="button" class="data-safe-btn" data-tools-measure-clear="1">Clear measure</button></div>`;
+    const pinTools=`<div class="data-card"><b>Pin drops</b><p>Hold the map for 2 seconds to drop a pin. New pins can be saved, removed, opened in Google Maps, or used for a 350 m proximity check.</p><small>Status: ${esc(pinStatus)}</small></div><div class="data-action-grid single"><button type="button" class="data-safe-btn" data-tools-pins-show="1">Show saved pins</button><button type="button" class="data-safe-btn" data-tools-pins-hide="1">Hide saved pins</button>${tempPin?'<button type="button" class="data-danger-btn" data-tools-temp-pin-remove="1">Remove new pin</button>':''}<button type="button" class="data-safe-btn" data-tools-pins-export="1">Export saved pins</button><button type="button" class="data-danger-btn" data-tools-pins-clear="1">Clear saved pins</button></div>${savedList}`;
+    const gpsTools=`<div class="data-card"><b>GPS / Patrol mode</b><p>Walking, driving and heli modes are separate. Heli is calmer and heading based.</p><small>Current: ${esc(gpsLabel)}</small></div><div class="gps-tools-grid"><button type="button" class="data-safe-btn ${profile==='walking'?'active':''}" data-tools-gps-profile="walking">Walking</button><button type="button" class="data-safe-btn ${profile==='driving'?'active':''}" data-tools-gps-profile="driving">Driving</button><button type="button" class="data-safe-btn ${profile==='helicopter'?'active':''}" data-tools-gps-profile="helicopter">Helicopter</button></div><div class="data-action-grid single"><button type="button" class="data-safe-btn" data-tools-start-gps="1">Start / show GPS panel</button><button type="button" class="data-safe-btn" data-tools-stop-follow="1">Stop follow only</button></div>`;
+    const referenceTools=`<div class="data-card"><b>Reference points</b><p>Show or hide depots and substations without cluttering the + menu.</p></div><div class="data-action-grid single"><button type="button" class="data-safe-btn ${refsMode==='all substations'?'active':''}" data-tools-reference-kind="substation">${refsMode==='all substations'?'Hide All Substations':'Show All Substations'}</button><button type="button" class="data-safe-btn ${refsMode==='all depots'?'active':''}" data-tools-reference-kind="depot">${refsMode==='all depots'?'Hide All Depots':'Show All Depots'}</button></div>`;
+    const crossingTools=`<div class="data-card"><b>HV / TX crossings</b><p>${Number(xs.total||0).toLocaleString()} imported · ${Number(xs.active||0).toLocaleString()} currently shown${line?` · current: ${esc(line)}`:''}</p><small>Separate crossing layer only.</small></div><div class="data-action-grid single"><button type="button" class="data-safe-btn" data-tools-show-current-crossings="1">Show current circuit crossings</button><button type="button" class="data-safe-btn" data-tools-show-view-crossings="1">Show crossings in map view</button><button type="button" class="data-safe-btn" data-tools-hide-crossings="1">Hide crossings</button></div>`;
+    body.innerHTML=section('toolsMeasure','Measuring tool',measureTools,measureStatus,false)+section('toolsPins','Pin drops',pinTools,pinStatus,false)+section('toolsGps','GPS / Patrol mode',gpsTools,gpsLabel,false)+section('toolsReferences','Reference points',referenceTools,refsMode==='all substations'?'Substations shown':(refsMode==='all depots'?'Depots shown':'Closed'),false)+section('toolsCrossings','HV / TX crossings',crossingTools,`${Number(xs.total||0).toLocaleString()} imported`,false);
+    if(preserveScroll&&wrap){requestAnimationFrame(()=>{wrap.scrollTop=keep;});}
+  };
+  const oldHandle=APP.handleToolsClick;
+  APP.handleToolsClick=async function(e){
+    const del=e.target.closest?.('button[data-tools-pin-delete]');
+    if(del){e.preventDefault();const id=String(del.dataset.toolsPinDelete||'');if(id)MapEngine?.deleteSavedPinDrop?.(id);this.renderToolsPanel(true);return;}
+    const temp=e.target.closest?.('button[data-tools-temp-pin-remove]');
+    if(temp){e.preventDefault();MapEngine?.removeCurrentPinDrop?.(true);this.renderToolsPanel(true);return;}
+    try{return await oldHandle.call(this,e);}catch(err){try{console.warn('tools click fallback',err);}catch(_){} UI?.toast?.('Tool action failed. Try closing Tools and reopening.');}
+  };
+})();
+
 window.addEventListener('DOMContentLoaded',()=>LeanMapApp.boot());

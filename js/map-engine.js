@@ -1,5 +1,5 @@
 const MapEngine={
-  map:null, layers:{}, markerLayer:null, routeLayer:null, connectedLineLayer:null, utilityLayer:null, userMarker:null, gpsWatchId:null, gpsMode:'free', gpsProfile:'walking', gpsLast:null, gpsError:false, base:'street', satellite:false, drawing:false, drawToken:0, mapRenderer:null, currentDisplay:'none', currentCircuit:null, currentCircuits:[], currentCircuitRoutes:[], lastFullCircuitAssets:[], lastFullCircuitLabel:'', circuitDensityMode:'', gpsNearestCache:null, gpsPanelHidden:false, gpsPanelMinimized:false, gpsPendingLocateOnce:false, gpsInteractionTimer:null, gpsPingMarker:null, gpsPingTimer:null, gpsLastRaw:null, gpsRotateHeading:false, mapRotationDeg:0, _mapHeadingUsed:NaN, _mapRotationSmoothed:NaN, _gpsUserMoving:false, _gpsSuspendUntil:0, _gpsProgrammaticMoveUntil:0, _gpsTrackCenter:null, _gpsLastLookaheadHeading:NaN, _lastGpsViewAt:0,
+  map:null, layers:{}, markerLayer:null, routeLayer:null, connectedLineLayer:null, utilityLayer:null, userMarker:null, gpsWatchId:null, gpsMode:'free', gpsProfile:'walking', gpsLast:null, gpsError:false, base:'street', satellite:false, drawing:false, drawToken:0, mapRenderer:null, currentDisplay:'none', currentCircuit:null, currentCircuits:[], currentCircuitRoutes:[], lastFullCircuitAssets:[], lastFullCircuitLabel:'', circuitDensityMode:'', gpsNearestCache:null, gpsPanelHidden:false, gpsPanelMinimized:false, gpsPendingLocateOnce:false, gpsInteractionTimer:null, gpsPingMarker:null, gpsPingTimer:null, measureLayer:null, measureMode:false, measurePoints:[], measureSnapEnabled:true, _lastMeasureInput:null, pinDropLayer:null, pinDropMarker:null, savedPinDropLayer:null, savedPinDropsVisible:true, pinDropHoldTimer:null, pinDropHoldMoved:false, breadcrumbLayer:null, breadcrumbEnabled:false, breadcrumbPoints:[], breadcrumbLastPoint:null, breadcrumbLastAt:0, gpsLastRaw:null, gpsRotateHeading:false, mapRotationDeg:0, _mapHeadingUsed:NaN, _mapRotationSmoothed:NaN, _gpsUserMoving:false, _gpsSuspendUntil:0, _gpsProgrammaticMoveUntil:0, _gpsTrackCenter:null, _gpsLastLookaheadHeading:NaN, _lastGpsViewAt:0,
   init(){
     if(!window.L){throw new Error('Leaflet failed to load. Check internet connection for map library.');}
     this.map=L.map('map',{zoomControl:false,preferCanvas:true}).setView([-31.9523,115.8613],10);
@@ -12,12 +12,20 @@ const MapEngine={
     this.routeLayer=L.layerGroup().addTo(this.map);
     this.connectedLineLayer=L.layerGroup().addTo(this.map);
     this.utilityLayer=L.layerGroup().addTo(this.map);
-    this.map.on('popupopen',ev=>this.preparePopupScroll(ev));
+    this.map.on('popupopen',ev=>{this.preparePopupScroll(ev);this.scheduleHeliPopupAutoClose(ev);});
     this.map.on('popupclose',()=>{try{this.map.dragging.enable();}catch(e){}});
     this.map.on('movestart zoomstart dragstart',()=>this.onGpsMapUserMovementStart());
     this.map.on('moveend dragend',()=>{this.onGpsMapUserMovementEnd();this.reapplyMapRotation();});
     this.map.on('zoomend resize',()=>{this.onZoomDensityChange();this.onGpsMapUserMovementEnd();this.reapplyMapRotation();});
     this.map.on('move zoom',()=>this.reapplyMapRotation());
+    this.map.on('click',ev=>{
+      if(Date.now()<(this._pinDropSuppressClickUntil||0)){try{ev?.originalEvent?.preventDefault?.();ev?.originalEvent?.stopPropagation?.();}catch(e){} return;}
+      this.handleMeasureMapClick?.(ev);
+    });
+    this.bindMeasureDomEvents();
+    this.bindPinDropHold();
+    this.bindPinDropPopupActions();
+    setTimeout(()=>this.renderSavedPinDrops?.(true),700);
     this.bindGpsUiControls();
     this.loadGpsProfile();
     setTimeout(()=>{this.updateGpsButton();this.updateGpsProfileButtons();this.updateMapLayerButton?.();},50);
@@ -50,6 +58,18 @@ const MapEngine={
       });
       this.refitOpenPopup();
     },0);
+  },
+  scheduleHeliPopupAutoClose(ev){
+    if(!(this.gpsProfile==='helicopter'||this.gpsMode==='track'))return;
+    const popup=ev?.popup;
+    if(!popup)return;
+    try{clearTimeout(popup._mymapAutoCloseTimer);}catch(e){}
+    popup._mymapAutoCloseTimer=setTimeout(()=>{
+      try{
+        if(this.map&&this.map._popup===popup)this.map.closePopup(popup);
+        else popup.close?.();
+      }catch(e){}
+    },3000);
   },
   popupOptions(){
     return {maxWidth:260,minWidth:150,autoPan:true,keepInView:false,autoPanPaddingTopLeft:[18,88],autoPanPaddingBottomRight:[18,34]};
@@ -384,6 +404,9 @@ const MapEngine={
   },
   markerModeFor(label,list){
     const text=String(label||'');
+    // In heli/heading-up mode, DOM dots are more reliable to tap on mobile than canvas hit-testing
+    // after map rotation/pan transforms. Keep them clickable, even if a circuit has many dots.
+    if(this.gpsRotateHeading||this.gpsProfile==='helicopter'||this.gpsMode==='track')return 'dom-dot';
     if((/^circuit\s+/i.test(text)||/^multi-circuit$/i.test(text))&&Array.isArray(list)&&list.length>180)return 'canvas-dot';
     if(/^current map view|^What's here/i.test(text)&&Array.isArray(list)&&list.length>300)return 'canvas-dot';
     return 'dom-dot';
@@ -1915,6 +1938,7 @@ const MapEngine={
     bind('gpsPanelMinBtn',()=>this.toggleGpsPanelMinimized());
     bind('gpsPanelCloseBtn',()=>this.hideGpsPanel());
     bind('gpsNearestPingBtn',()=>this.pingNearestGpsAsset(10000,{show:true}));
+    bind('gpsBreadcrumbBtn',()=>this.toggleBreadcrumbTrail());
     document.querySelectorAll('[data-gps-profile],[data-tools-gps-profile]').forEach(btn=>{
       if(btn.dataset.gpsProfileBound==='1')return;
       btn.dataset.gpsProfileBound='1';
@@ -1941,6 +1965,7 @@ const MapEngine={
     }
     if(this.gpsLast&&(this.gpsMode==='follow'||this.gpsMode==='track'))this.applyGpsModeView([this.gpsLast.lat,this.gpsLast.lon],{force:true});
     this.updateMapRotationFromGps({force:true});
+    if(this.gpsMode==='track'||this.gpsRotateHeading)setTimeout(()=>this.refreshInteractiveDotsForHeadingMode?.(),120);
   },
   cycleGpsMode(){
     const order=['free','follow','track'];
@@ -1977,6 +2002,7 @@ const MapEngine={
     this.startGpsWatch(false);
     if(this.gpsLast&&(this.gpsMode==='follow'||this.gpsMode==='track'))this.applyGpsModeView([this.gpsLast.lat,this.gpsLast.lon],{force:true});
     this.updateMapRotationFromGps({force:true});
+    if(p==='helicopter'||this.gpsRotateHeading)setTimeout(()=>this.refreshInteractiveDotsForHeadingMode?.(),120);
     UI?.toast?.(`${this.gpsProfileLabel(p)} GPS${p==='helicopter'?' tracking on.':'.'}`);
   },
   toggleGpsHeadingRotate(){
@@ -1988,9 +2014,21 @@ const MapEngine={
       this.applyMapRotationDeg(0);
     }else{
       this.updateMapRotationFromGps({force:true});
+      setTimeout(()=>this.refreshInteractiveDotsForHeadingMode?.(),120);
     }
     this.updateGpsProfileButtons();
     UI?.toast?.(this.gpsRotateHeading?'Map rotate ON':'Map rotate OFF');
+  },
+  async refreshInteractiveDotsForHeadingMode(){
+    try{
+      if(!(this.gpsRotateHeading||this.gpsProfile==='helicopter'||this.gpsMode==='track'))return;
+      const list=(Array.isArray(this.lastDrawnAssets)&&this.lastDrawnAssets.length)?this.lastDrawnAssets:((Array.isArray(this.lastFullCircuitAssets)&&this.lastFullCircuitAssets.length)?this.lastFullCircuitAssets:[]);
+      if(!list.length||!this.markerLayer)return;
+      let label=String(this.currentDisplay||this.lastFullCircuitLabel||'current map view');
+      if(!this.drawAllowed(label))label=/^circuit\s+/i.test(String(this.lastFullCircuitLabel||''))?this.lastFullCircuitLabel:'current map view';
+      if(!this.drawAllowed(label))return;
+      await this.drawAssets(list,label,false,{viewportFirst:true});
+    }catch(e){try{Diagnostics?.log?.('Heli dot redraw skipped',String(e?.message||e));}catch(_){} }
   },
   gpsModeLabel(){
     return this.gpsMode==='track'?'Tracking':this.gpsMode==='follow'?'Follow':'Free scroll';
@@ -2051,6 +2089,13 @@ const MapEngine={
       rotateBtn.setAttribute('aria-pressed',this.gpsRotateHeading?'true':'false');
       rotateBtn.title=this.gpsRotateHeading?'Heading-up map rotation is on':'Heading-up map rotation is off';
     }
+    const crumbBtn=document.getElementById('gpsBreadcrumbBtn');
+    if(crumbBtn){
+      crumbBtn.textContent=this.breadcrumbEnabled?'Breadcrumb ON':'Breadcrumb OFF';
+      crumbBtn.classList.toggle('active',!!this.breadcrumbEnabled);
+      crumbBtn.setAttribute('aria-pressed',this.breadcrumbEnabled?'true':'false');
+      crumbBtn.title=this.breadcrumbEnabled?'Breadcrumb trail is recording':'Start breadcrumb trail';
+    }
     const minBtn=document.getElementById('gpsPanelMinBtn');
     if(minBtn){minBtn.textContent=this.gpsPanelMinimized?'＋':'−';minBtn.setAttribute('aria-label',this.gpsPanelMinimized?'Expand GPS panel':'Minimise GPS panel');}
     this.updateGpsPanelMinimizedSummary?.();
@@ -2099,6 +2144,7 @@ const MapEngine={
         ts:raw.ts
       };
       if(!this.userMarker)this.userMarker=L.marker(ll,{icon,zIndexOffset:900}).addTo(this.map); else this.userMarker.setLatLng(ll);
+      this.recordBreadcrumbPoint(ll);
       if(this.gpsPendingLocateOnce){this.jumpToGpsPosition(ll);this.gpsPendingLocateOnce=false;}
       else this.applyGpsModeView(ll);
       const acc=Math.round(pos.coords.accuracy||0);
@@ -2187,7 +2233,9 @@ const MapEngine={
       if(diff<(this.gpsProfile==='helicopter'?7:9))return;
     }
     this._mapHeadingUsed=this.normaliseDeg(h);
-    const target=-this._mapHeadingUsed;
+    let target=-this._mapHeadingUsed;
+    if(target<-180)target+=360;
+    if(target>180)target-=360;
     const oldRot=Number(this._mapRotationSmoothed);
     const nextRot=opts.force||!Number.isFinite(oldRot)?target:this.smoothSignedDeg(oldRot,target,this.gpsProfile==='helicopter'?0.28:0.22);
     this._mapRotationSmoothed=nextRot;
@@ -2315,7 +2363,8 @@ const MapEngine={
         const minMove=this.gpsMode==='track'?7:5;
         if(!opts.force&&Number.isFinite(d)&&d<minMove)return;
       }catch(e){}
-      this.setProgrammaticGpsView(()=>this.map.setView(ll,z,{animate:true,duration:this.gpsMode==='track'?0.38:0.32}));
+      if(this.gpsMode==='track')this.gpsSetAheadView(ll,z,{force:!!opts.force});
+      else this.setProgrammaticGpsView(()=>this.map.setView(ll,z,{animate:true,duration:0.32}));
       this.updateMapRotationFromGps({force:!!opts.force});
     }
   },
@@ -2618,7 +2667,7 @@ const MapEngine={
     const acc=Number(g.accuracy);
     const set=(id,val)=>{const el=document.getElementById(id); if(el)el.textContent=val;};
     set('gpsSpeedValue',speedText);
-    set('gpsAltitudeValue',Number.isFinite(altitude)?`${Math.round(altitude)} m`:'—');
+    set('gpsAltitudeValue',Number.isFinite(altitude)?`${Math.round(altitude)} m · ${Math.round(altitude*3.28084)} ft`:'—');
     set('gpsHeadingValue',Number.isFinite(heading)?`${Math.round(heading)}° · ${this.gpsCardinal(heading)}`:'—');
     set('gpsAccuracyValue',Number.isFinite(acc)?`${Math.round(acc)} m · ${this.gpsSignalLabel(acc)}`:'—');
     const status=document.getElementById('gpsStatus');
@@ -2642,6 +2691,536 @@ const MapEngine={
     else set('gpsNextValue','—');
   },
 
+
+  isMapInteractionUiTarget(target){
+    try{
+      return !!(target&&target.closest&&target.closest('.leaflet-popup,.leaflet-control,.lean-left-rail,.gps-patrol-panel,.plus-menu,.circuit-picker,.search-panel,.status-panel,.conductors-panel,.tools-panel,.reset-panel,.data-manager-panel,.overlay,.import-overlay'));
+    }catch(e){return false;}
+  },
+  latLngFromDomEvent(e){
+    if(!this.map||!window.L)return null;
+    if(e?.latlng)return L.latLng(e.latlng.lat,e.latlng.lng);
+    const src=e?.touches?.[0]||e?.changedTouches?.[0]||e?.originalEvent?.touches?.[0]||e?.originalEvent?.changedTouches?.[0]||e?.originalEvent||e;
+    const x=Number(src?.clientX), y=Number(src?.clientY);
+    if(!Number.isFinite(x)||!Number.isFinite(y))return null;
+    const rect=this.map.getContainer?.().getBoundingClientRect?.();
+    if(!rect)return null;
+    return this.map.containerPointToLatLng(L.point(x-rect.left,y-rect.top));
+  },
+  bindPinDropHold(){
+    if(!this.map||this._pinDropHoldBound)return;
+    this._pinDropHoldBound=true;
+    const container=this.map.getContainer?.();
+    const begin=e=>{
+      if(this.measureMode)return;
+      if(e?.pointerType==='mouse'&&e.button!==0)return;
+      if(this.isMapInteractionUiTarget(e?.target))return;
+      const ll=this.latLngFromDomEvent(e);
+      if(!ll)return;
+      this.cancelPinDropHold(false);
+      this.pinDropHoldMoved=false;
+      const src=e?.touches?.[0]||e?.changedTouches?.[0]||e;
+      this._pinDropHoldState={x:Number(src.clientX),y:Number(src.clientY),ll:L.latLng(ll.lat,ll.lng),pointerId:e.pointerId,dropped:false,startedAt:Date.now()};
+      this.pinDropHoldTimer=setTimeout(()=>{
+        const st=this._pinDropHoldState;
+        this.pinDropHoldTimer=null;
+        if(st&&!this.pinDropHoldMoved){
+          st.dropped=true;
+          this._pinDropSuppressClickUntil=Date.now()+1200;
+          this.dropHoldPin(st.ll,{temporary:true});
+        }
+      },2000);
+    };
+    const move=e=>{
+      const st=this._pinDropHoldState;
+      if(!st)return;
+      if(st.pointerId!=null&&e.pointerId!=null&&st.pointerId!==e.pointerId)return;
+      const src=e?.touches?.[0]||e?.changedTouches?.[0]||e;
+      const dx=Number(src.clientX)-Number(st.x), dy=Number(src.clientY)-Number(st.y);
+      if(Math.hypot(dx,dy)>18)this.cancelPinDropHold(true);
+    };
+    const finish=e=>{
+      const dropped=this._pinDropHoldState?.dropped;
+      if(dropped){
+        try{e.preventDefault();e.stopPropagation();}catch(_e){}
+        this._pinDropSuppressClickUntil=Date.now()+1200;
+      }
+      this.cancelPinDropHold(true);
+    };
+    if(container){
+      container.addEventListener('pointerdown',begin,{passive:true});
+      container.addEventListener('pointermove',move,{passive:true});
+      container.addEventListener('pointerup',finish,{capture:true,passive:false});
+      container.addEventListener('pointercancel',finish,{capture:true,passive:false});
+      container.addEventListener('pointerleave',finish,{passive:true});
+      container.addEventListener('touchstart',begin,{passive:true});
+      container.addEventListener('touchmove',move,{passive:true});
+      container.addEventListener('touchend',finish,{capture:true,passive:false});
+      container.addEventListener('touchcancel',finish,{capture:true,passive:false});
+    }
+    this.map.on('contextmenu',ev=>{
+      if(this.measureMode||this.isMapInteractionUiTarget(ev?.originalEvent?.target))return;
+      try{ev?.originalEvent?.preventDefault?.();ev?.originalEvent?.stopPropagation?.();}catch(e){}
+      const ll=ev?.latlng||this.latLngFromDomEvent(ev);
+      if(ll)this.dropHoldPin(ll,{temporary:true});
+    });
+    // Do not cancel on normal Leaflet dragstart: Android sometimes fires it during a still long-press.
+    this.map.on('zoomstart popupopen',()=>this.cancelPinDropHold(true));
+  },
+  bindPinDropPopupActions(){
+    if(this._pinDropPopupActionsBound)return;
+    this._pinDropPopupActionsBound=true;
+    document.addEventListener('click',e=>{
+      const btn=e.target?.closest?.('[data-pin-drop-action]');
+      if(!btn)return;
+      try{e.preventDefault();e.stopPropagation();}catch(_e){}
+      const action=String(btn.dataset.pinDropAction||'').trim();
+      const lat=Number(btn.dataset.lat), lon=Number(btn.dataset.lon);
+      const id=String(btn.dataset.pinId||'');
+      if(!action)return;
+      if(action==='maps'){
+        try{window.open(this.googleMapsUrlFor(lat,lon),'_blank','noopener');}catch(_e){location.href=this.googleMapsUrlFor(lat,lon);}
+        return;
+      }
+      this.handlePinDropAction(action,lat,lon,id);
+    },true);
+  },
+  startPinDropHold(ev){
+    if(this.measureMode||!ev?.latlng)return;
+    if(this.isMapInteractionUiTarget(ev?.originalEvent?.target))return;
+    this.cancelPinDropHold(false);
+    const ll=L.latLng(ev.latlng.lat,ev.latlng.lng);
+    this.pinDropHoldMoved=false;
+    this.pinDropHoldTimer=setTimeout(()=>{
+      this.pinDropHoldTimer=null;
+      if(!this.pinDropHoldMoved)this.dropHoldPin(ll,{temporary:true});
+    },2000);
+  },
+  cancelPinDropHold(moved=true){
+    this.pinDropHoldMoved=!!moved;
+    if(this.pinDropHoldTimer){clearTimeout(this.pinDropHoldTimer);this.pinDropHoldTimer=null;}
+    this._pinDropHoldState=null;
+  },
+  ensurePinDropLayer(){
+    if(!this.map||!window.L)return null;
+    if(!this.pinDropLayer)this.pinDropLayer=L.layerGroup().addTo(this.map);
+    return this.pinDropLayer;
+  },
+  ensureSavedPinDropLayer(){
+    if(!this.map||!window.L)return null;
+    if(!this.savedPinDropLayer)this.savedPinDropLayer=L.layerGroup().addTo(this.map);
+    return this.savedPinDropLayer;
+  },
+  pinStorageKey(){return 'myMapSavedPinDrops';},
+  readSavedPinDrops(){
+    try{
+      const arr=JSON.parse(localStorage.getItem(this.pinStorageKey())||'[]');
+      return Array.isArray(arr)?arr.filter(p=>Number.isFinite(Number(p?.pin?.lat))&&Number.isFinite(Number(p?.pin?.lon))):[];
+    }catch(e){return [];}
+  },
+  writeSavedPinDrops(arr){
+    try{localStorage.setItem(this.pinStorageKey(),JSON.stringify((Array.isArray(arr)?arr:[]).slice(0,300)));return true;}catch(e){return false;}
+  },
+  savedPinDropCount(){return this.readSavedPinDrops().length;},
+  pinDropStatusLabel(){
+    const n=this.savedPinDropCount();
+    return n?`${n} saved${this.savedPinDropsVisible?' · shown':' · hidden'}`:'none saved';
+  },
+  makePinDropIcon(saved=false){
+    return L.divIcon({
+      className:`pin-drop-leaflet-icon ${saved?'saved-pin-icon':'temp-pin-icon'}`,
+      html:`<div class="pin-drop-marker ${saved?'saved':'temp'}"><span></span></div>`,
+      iconSize:[34,44],iconAnchor:[17,42],popupAnchor:[0,-38]
+    });
+  },
+  openPinDropPopup(ll,opts={}){
+    if(!this.map||!window.L||!ll)return;
+    const latLng=L.latLng(Number(ll.lat),Number(ll.lng??ll.lon));
+    if(!Number.isFinite(latLng.lat)||!Number.isFinite(latLng.lng))return;
+    try{
+      const popup=L.popup(Object.assign({},this.popupOptions(),{closeOnClick:false,autoClose:true,keepInView:true}))
+        .setLatLng(latLng)
+        .setContent(this.pinDropPopupHtml(latLng,opts));
+      popup.openOn(this.map);
+      setTimeout(()=>{try{this.refitOpenPopup?.();}catch(_e){}},80);
+    }catch(e){
+      try{this.pinDropMarker?.openPopup?.();this.refitOpenPopup?.();}catch(_e){}
+    }
+  },
+  dropHoldPin(ll,opts={}){
+    if(!this.map||!window.L||!ll)return;
+    const layer=this.ensurePinDropLayer();
+    if(!layer)return;
+    try{this.pinDropMarker?.remove?.();}catch(e){try{layer.removeLayer(this.pinDropMarker);}catch(_){} }
+    const latLng=L.latLng(Number(ll.lat),Number(ll.lng??ll.lon));
+    if(!Number.isFinite(latLng.lat)||!Number.isFinite(latLng.lng))return;
+    const marker=L.marker(latLng,{icon:this.makePinDropIcon(false),zIndexOffset:6100,riseOnHover:true,interactive:true,keyboard:true}).addTo(layer);
+    marker.bindPopup(()=>this.pinDropPopupHtml(latLng,{saved:false}),Object.assign({},this.popupOptions(),{closeOnClick:false,keepInView:true}));
+    marker.on('click',()=>this.openPinDropPopup(latLng,{saved:false}));
+    this.pinDropMarker=marker;
+    try{marker.setZIndexOffset?.(7000);marker.bringToFront?.();}catch(e){}
+    const oldClose=this.map.options.closePopupOnClick;
+    this.map.options.closePopupOnClick=false;
+    setTimeout(()=>{try{this.map.options.closePopupOnClick=oldClose;}catch(e){}},1400);
+    setTimeout(()=>this.openPinDropPopup(latLng,{saved:false}),140);
+    UI?.toast?.('Pin dropped. Add comments then save, proximity check, Google Maps, or remove.');
+  },
+  removeCurrentPinDrop(showToast=true){
+    try{this.pinDropMarker?.closePopup?.();}catch(e){}
+    try{const p=this.map?._popup; if(p?.getElement?.()?.querySelector?.('.pin-drop-popup'))this.map.closePopup(p);}catch(e){}
+    try{this.pinDropMarker?.remove?.();}catch(e){try{this.pinDropLayer?.removeLayer?.(this.pinDropMarker);}catch(_){} }
+    this.pinDropMarker=null;
+    if(showToast)UI?.toast?.('Pin removed.');
+  },
+  googleMapsUrlFor(lat,lon){return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(Number(lat).toFixed(6)+','+Number(lon).toFixed(6))}`;},
+  pinDropPopupHtml(ll,opts={}){
+    const lat=Number(ll?.lat), lon=Number(ll?.lng??ll?.lon);
+    const esc=UI?.esc||((v)=>String(v??''));
+    const saved=!!opts.saved;
+    const id=String(opts.id||opts.record?.id||'');
+    const comments=String(opts.comments??opts.record?.comments??'');
+    const maps=this.googleMapsUrlFor(lat,lon);
+    const circuits=opts.record?.nearestCircuits250m||this.nearestCircuitsNear(lat,lon,250).slice(0,8);
+    const title=saved?'Saved pin drop':'Pin drop';
+    const meta=saved&&opts.record?.localDateTime?opts.record.localDateTime:new Date().toLocaleString();
+    const idArg=esc(id).replace(/&#39;/g,'\\&#39;');
+    const actionSave=saved?'Update comment':'Save pin';
+    const removeLabel=saved?'Delete saved pin':'Remove pin';
+    return `<div class="asset-popup pin-drop-popup"><b>${title}</b><div class="popup-info-box"><div><b>Pin GPS</b><span>${lat.toFixed(6)}, ${lon.toFixed(6)}</span></div><div><b>Date / time</b><span>${esc(meta)}</span></div><div><b>Nearest circuits</b><span>${circuits.length?esc(circuits.join(', ')):'None within 250 m'}</span></div></div><label class="pin-comment-label">Comments<textarea class="pin-drop-comment" rows="3" placeholder="Add notes for this pin...">${esc(comments)}</textarea></label><div class="popup-actions"><a class="popup-btn" target="_blank" rel="noopener" href="${maps}">Google Maps</a><button type="button" class="popup-btn" data-pin-drop-action="proximity" data-lat="${lat}" data-lon="${lon}" data-pin-id="${idArg}">Proximity 350m</button><button type="button" class="popup-btn primary" data-pin-drop-action="save" data-lat="${lat}" data-lon="${lon}" data-pin-id="${idArg}">${actionSave}</button><button type="button" class="popup-btn danger" data-pin-drop-action="${saved?'deleteSaved':'remove'}" data-lat="${lat}" data-lon="${lon}" data-pin-id="${idArg}">${removeLabel}</button></div><small>Saved pins keep comments, nearest circuits within 250 m, current date/time, GPS location and Google Maps link on this phone.</small></div>`;
+  },
+  pinDropCommentFromPopup(){
+    try{return String(document.querySelector('.leaflet-popup-content textarea.pin-drop-comment')?.value||'').trim();}catch(e){return '';}
+  },
+  assetsNearPoint(lat,lon,radiusM=350,limit=80){
+    const origin={lat:Number(lat),lon:Number(lon)};
+    const pools=[];
+    if(Array.isArray(this.lastFullCircuitAssets)&&this.lastFullCircuitAssets.length)pools.push(this.lastFullCircuitAssets);
+    if(Array.isArray(this.lastDrawnAssets)&&this.lastDrawnAssets.length)pools.push(this.lastDrawnAssets);
+    const near=this.nearbyAssetsForGps?.(origin.lat,origin.lon);
+    if(Array.isArray(near)&&near.length)pools.push(near);
+    if((!pools.length||radiusM>=350)&&Array.isArray(App.assets)&&App.assets.length<=120000)pools.push(App.assets);
+    const seen=new Set(), out=[];
+    for(const pool of pools){
+      for(const a of pool||[]){
+        if(!a||a.kind==='circuit'||!Number.isFinite(Number(a.lat))||!Number.isFinite(Number(a.lon))||UtilitiesEngine?.isUtility?.(a))continue;
+        const id=String(a.id||a.assetId||a.globalId||`${a.lat},${a.lon},${a.label||''}`);
+        if(seen.has(id))continue; seen.add(id);
+        const m=this.distanceM(origin,{lat:Number(a.lat),lon:Number(a.lon)});
+        if(Number.isFinite(m)&&m<=Number(radiusM)){out.push({asset:a,m});}
+      }
+    }
+    out.sort((a,b)=>a.m-b.m);
+    return out.slice(0,limit);
+  },
+  nearestCircuitsNear(lat,lon,radiusM=250){
+    const set=new Set(), out=[];
+    for(const r of this.assetsNearPoint(lat,lon,radiusM,180)){
+      const c=this.circuitForGpsAsset(r.asset)||r.asset?.line||'';
+      const k=SearchEngine?.compact?.(c)||String(c||'').toUpperCase().replace(/[^A-Z0-9]/g,'');
+      if(c&&k&&!set.has(k)){set.add(k);out.push(c);}
+    }
+    return out;
+  },
+  handlePinDropSaveFromPopup(lat,lon,id=''){
+    return this.savePinDrop(lat,lon,this.pinDropCommentFromPopup(),id);
+  },
+  savePinDrop(lat,lon,comments='',existingId=''){
+    lat=Number(lat);lon=Number(lon);
+    if(!Number.isFinite(lat)||!Number.isFinite(lon)){UI?.toast?.('Could not save pin.');return null;}
+    const arr=this.readSavedPinDrops();
+    const now=new Date();
+    const circuits=this.nearestCircuitsNear(lat,lon,250);
+    const nearby=this.assetsNearPoint(lat,lon,250,20).map(r=>({title:this.titleForGpsAsset(r.asset),distanceM:Math.round(r.m),circuit:this.circuitForGpsAsset(r.asset)||''}));
+    const g=this.gpsLast||{};
+    const record={
+      id:existingId||('pin-'+Date.now()),
+      comments:String(comments||''),
+      dateTime:now.toISOString(),
+      localDateTime:now.toLocaleString(),
+      pin:{lat,lon},
+      gpsLocation:(Number.isFinite(Number(g.lat))&&Number.isFinite(Number(g.lon)))?{lat:Number(g.lat),lon:Number(g.lon),accuracy:g.accuracy??null,heading:g.heading??null}:null,
+      googleMapsLocation:this.googleMapsUrlFor(lat,lon),
+      nearestCircuits250m:circuits,
+      nearestAssets250m:nearby
+    };
+    const i=arr.findIndex(p=>String(p.id)===String(record.id));
+    if(i>=0)arr[i]=Object.assign({},arr[i],record); else arr.unshift(record);
+    if(!this.writeSavedPinDrops(arr)){UI?.toast?.('Could not save pin on this device.');return null;}
+    this.removeCurrentPinDrop(false);
+    this.renderSavedPinDrops(true);
+    try{
+      const marker=this.findSavedPinMarker(record.id);
+      if(marker){marker.openPopup();this.refitOpenPopup?.();}
+    }catch(e){}
+    UI?.toast?.(`${i>=0?'Pin updated':'Pin saved'}${circuits.length?' · '+circuits.length+' circuit(s) nearby':''}.`);
+    try{window.LeanMapApp?.renderToolsPanel?.(true);}catch(e){}
+    return record;
+  },
+  findSavedPinMarker(id){
+    let found=null;
+    try{this.savedPinDropLayer?.eachLayer?.(l=>{if(String(l?.options?.pinDropId||'')===String(id))found=l;});}catch(e){}
+    return found;
+  },
+  renderSavedPinDrops(show=true){
+    this.savedPinDropsVisible=!!show;
+    const layer=this.ensureSavedPinDropLayer();
+    if(!layer)return;
+    try{layer.clearLayers();}catch(e){}
+    if(!this.savedPinDropsVisible)return;
+    const arr=this.readSavedPinDrops();
+    for(const rec of arr){
+      const lat=Number(rec?.pin?.lat), lon=Number(rec?.pin?.lon);
+      if(!Number.isFinite(lat)||!Number.isFinite(lon))continue;
+      try{
+        const ll=L.latLng(lat,lon);
+        const marker=L.marker(ll,{icon:this.makePinDropIcon(true),zIndexOffset:6050,riseOnHover:true,interactive:true,pinDropId:rec.id}).addTo(layer);
+        marker.bindPopup(()=>this.pinDropPopupHtml(ll,{saved:true,id:rec.id,comments:rec.comments,record:rec}),this.popupOptions());
+      }catch(e){}
+    }
+  },
+  hideSavedPinDrops(){
+    this.savedPinDropsVisible=false;
+    try{this.savedPinDropLayer?.clearLayers?.();}catch(e){}
+    UI?.toast?.('Saved pins hidden.');
+    try{window.LeanMapApp?.renderToolsPanel?.(true);}catch(e){}
+  },
+  showSavedPinDrops(){
+    this.renderSavedPinDrops(true);
+    UI?.toast?.(`${this.savedPinDropCount()} saved pin(s) shown.`);
+    try{window.LeanMapApp?.renderToolsPanel?.(true);}catch(e){}
+  },
+  deleteSavedPinDrop(id){
+    const arr=this.readSavedPinDrops();
+    const next=arr.filter(p=>String(p.id)!==String(id));
+    if(next.length===arr.length){UI?.toast?.('Saved pin not found.');return;}
+    if(!this.writeSavedPinDrops(next)){UI?.toast?.('Could not delete saved pin.');return;}
+    try{this.map?.closePopup?.();}catch(e){}
+    this.renderSavedPinDrops(this.savedPinDropsVisible);
+    UI?.toast?.('Saved pin deleted.');
+    try{window.LeanMapApp?.renderToolsPanel?.(true);}catch(e){}
+  },
+  clearSavedPinDrops(){
+    const n=this.savedPinDropCount();
+    if(!n){UI?.toast?.('No saved pins to clear.');return;}
+    if(!confirm(`Delete ${n} saved pin drop(s) from this phone?`))return;
+    if(!this.writeSavedPinDrops([])){UI?.toast?.('Could not clear saved pins.');return;}
+    try{this.map?.closePopup?.();this.savedPinDropLayer?.clearLayers?.();}catch(e){}
+    UI?.toast?.('Saved pins cleared.');
+    try{window.LeanMapApp?.renderToolsPanel?.(true);}catch(e){}
+  },
+  exportSavedPinDrops(){
+    const arr=this.readSavedPinDrops();
+    if(!arr.length){UI?.toast?.('No saved pins to export.');return;}
+    try{
+      const blob=new Blob([JSON.stringify(arr,null,2)],{type:'application/json'});
+      const url=URL.createObjectURL(blob);
+      const a=document.createElement('a');
+      a.href=url;
+      a.download=`myMap-pin-drops-${new Date().toISOString().slice(0,10)}.json`;
+      document.body.appendChild(a);a.click();a.remove();
+      setTimeout(()=>URL.revokeObjectURL(url),1500);
+      UI?.toast?.('Saved pins export started.');
+    }catch(e){UI?.toast?.('Export failed.');}
+  },
+  handlePinDropAction(action,lat,lon,id=''){
+    lat=Number(lat);lon=Number(lon);
+    if(!Number.isFinite(lat)||!Number.isFinite(lon))return;
+    if(action==='proximity'){
+      const rows=this.assetsNearPoint(lat,lon,350,14);
+      const circuits=this.nearestCircuitsNear(lat,lon,350);
+      const list=rows.length?rows.map(r=>`<div><b>${UI.esc(this.titleForGpsAsset(r.asset))}</b><span>${this.fmtGpsDistance(r.m)}${this.circuitForGpsAsset(r.asset)?' · '+UI.esc(this.circuitForGpsAsset(r.asset)):''}</span></div>`).join(''):'<p>No mapped assets found within 350 m.</p>';
+      const backId=UI.esc(id).replace(/&#39;/g,'\&#39;');
+      const html=`<div class="asset-popup pin-drop-popup"><b>Proximity check · 350 m</b><div class="popup-info-box">${list}</div><small>${circuits.length?`Nearest circuits: ${UI.esc(circuits.slice(0,8).join(', '))}`:'No nearby circuit names found.'}</small><div class="popup-actions"><button type="button" class="popup-btn" data-pin-drop-action="${id?'openSaved':'drop'}" data-lat="${lat}" data-lon="${lon}" data-pin-id="${backId}">Back to pin</button></div></div>`;
+      try{L.popup(this.popupOptions()).setLatLng([lat,lon]).setContent(html).openOn(this.map);}catch(e){}
+      return;
+    }
+    if(action==='save')return this.savePinDrop(lat,lon,this.pinDropCommentFromPopup(),id||'');
+    if(action==='remove')return this.removeCurrentPinDrop(true);
+    if(action==='deleteSaved')return this.deleteSavedPinDrop(id);
+    if(action==='openSaved'){
+      const rec=this.readSavedPinDrops().find(p=>String(p.id)===String(id));
+      const ll=L.latLng(lat,lon);
+      try{L.popup(this.popupOptions()).setLatLng(ll).setContent(this.pinDropPopupHtml(ll,{saved:true,id,comments:rec?.comments||'',record:rec||null})).openOn(this.map);}catch(e){}
+      return;
+    }
+    if(action==='drop')return this.dropHoldPin(L.latLng(lat,lon),{temporary:true});
+  },
+  ensureBreadcrumbLayer(){
+    if(!this.map||!window.L)return null;
+    if(!this.breadcrumbLayer)this.breadcrumbLayer=L.layerGroup().addTo(this.map);
+    return this.breadcrumbLayer;
+  },
+  toggleBreadcrumbTrail(){
+    this.breadcrumbEnabled=!this.breadcrumbEnabled;
+    if(this.breadcrumbEnabled){
+      this.ensureBreadcrumbLayer();
+      this.breadcrumbPoints=[];this.breadcrumbLastPoint=null;this.breadcrumbLastAt=0;
+      UI?.toast?.('Breadcrumb trail ON.');
+    }else{
+      UI?.toast?.('Breadcrumb trail OFF. Trail kept on map.');
+    }
+    this.updateGpsProfileButtons();
+  },
+  clearBreadcrumbTrail(){
+    this.breadcrumbPoints=[];this.breadcrumbLastPoint=null;this.breadcrumbLastAt=0;
+    try{this.breadcrumbLayer?.clearLayers?.();}catch(e){}
+  },
+  recordBreadcrumbPoint(ll){
+    if(!this.breadcrumbEnabled||!Array.isArray(ll)||!this.map||!window.L)return;
+    const now=Date.now();
+    const pt=L.latLng(Number(ll[0]),Number(ll[1]));
+    if(!Number.isFinite(pt.lat)||!Number.isFinite(pt.lng))return;
+    const last=this.breadcrumbLastPoint;
+    const moved=last?this.distanceM({lat:last.lat,lon:last.lng},{lat:pt.lat,lon:pt.lng}):Infinity;
+    if(Number.isFinite(moved)&&moved<8&&now-(this.breadcrumbLastAt||0)<8000)return;
+    this.breadcrumbLastPoint=pt;this.breadcrumbLastAt=now;
+    this.breadcrumbPoints.push(pt);
+    if(this.breadcrumbPoints.length>1500)this.breadcrumbPoints.splice(0,this.breadcrumbPoints.length-1500);
+    const layer=this.ensureBreadcrumbLayer(); if(!layer)return;
+    try{layer.clearLayers();}catch(e){}
+    try{
+      if(this.breadcrumbPoints.length>1)L.polyline(this.breadcrumbPoints,{color:'#1f6f7a',weight:4,opacity:.82,dashArray:'4 8',interactive:false}).addTo(layer);
+      for(let i=Math.max(0,this.breadcrumbPoints.length-60);i<this.breadcrumbPoints.length;i+=Math.max(1,Math.floor(this.breadcrumbPoints.length/120))){
+        L.circleMarker(this.breadcrumbPoints[i],{radius:i===this.breadcrumbPoints.length-1?6:3,color:'#fffaf0',weight:2,fillColor:'#1f6f7a',fillOpacity:.9,interactive:false}).addTo(layer);
+      }
+    }catch(e){}
+  },
+  ensureMeasureLayer(){
+    if(!this.map||!window.L)return null;
+    if(!this.measureLayer)this.measureLayer=L.layerGroup().addTo(this.map);
+    return this.measureLayer;
+  },
+  bindMeasureDomEvents(){
+    if(!this.map||this._measureDomBound)return;
+    this._measureDomBound=true;
+    const container=this.map.getContainer?.();
+    if(!container)return;
+    const tap=e=>{
+      if(!this.measureMode)return;
+      if(this.isMapInteractionUiTarget(e?.target))return;
+      // The Leaflet click handler handles mouse clicks. This catches Samsung/Android taps that do not emit a reliable map click.
+      if(e.type==='pointerup'&&e.pointerType==='mouse')return;
+      const ll=this.latLngFromDomEvent(e);
+      if(!ll)return;
+      try{e.preventDefault();e.stopPropagation();}catch(_e){}
+      this.addMeasurePoint(ll,e);
+    };
+    container.addEventListener('pointerup',tap,{capture:true,passive:false});
+    container.addEventListener('touchend',tap,{capture:true,passive:false});
+  },
+  formatMeasureDistance(m){
+    const n=Number(m);
+    if(!Number.isFinite(n))return '—';
+    if(n<1000)return `${Math.round(n)} m`;
+    return `${(n/1000).toFixed(n<10000?2:1)} km`;
+  },
+  measureStatusLabel(){
+    if(this.measureMode)return this.measurePoints?.length?'first point set':'tap two points · snap on';
+    return this.measureLayer?'result shown':'off';
+  },
+  startMeasureTool(){
+    if(!this.map||!window.L){UI?.toast?.('Map not ready.');return;}
+    this.clearMeasure(false);
+    this.measureMode=true;
+    this.measurePoints=[];
+    this._lastMeasureInput=null;
+    this.ensureMeasureLayer();
+    try{this.map.getContainer?.().classList.add('measure-mode');}catch(e){}
+    UI?.toast?.('Measure on. Tap two points. Snaps to nearby visible asset dots.');
+  },
+  stopMeasureTool(showToast=false){
+    this.measureMode=false;
+    try{this.map?.getContainer?.().classList.remove('measure-mode');}catch(e){}
+    if(showToast)UI?.toast?.('Measure off.');
+  },
+  clearMeasure(showToast=true){
+    this.measurePoints=[];
+    this.measureMode=false;
+    this._lastMeasureInput=null;
+    try{this.map?.getContainer?.().classList.remove('measure-mode');}catch(e){}
+    try{this.measureLayer?.clearLayers?.();}catch(e){}
+    this.measureLayer=null;
+    if(showToast)UI?.toast?.('Measure cleared.');
+  },
+  measureSnapCandidates(){
+    const pools=[];
+    if(Array.isArray(this.lastDrawnAssets)&&this.lastDrawnAssets.length)pools.push(this.lastDrawnAssets);
+    if(Array.isArray(this.lastFullCircuitAssets)&&this.lastFullCircuitAssets.length)pools.push(this.lastFullCircuitAssets);
+    const out=[], seen=new Set();
+    for(const pool of pools){
+      for(const a of pool||[]){
+        if(!a||a.kind==='circuit'||UtilitiesEngine?.isUtility?.(a))continue;
+        const lat=Number(a.lat), lon=Number(a.lon);
+        if(!Number.isFinite(lat)||!Number.isFinite(lon))continue;
+        const id=String(a.id||a.assetId||a.globalId||`${lat},${lon},${a.label||a.line||''}`);
+        if(seen.has(id))continue; seen.add(id); out.push(a);
+      }
+    }
+    if(!out.length&&Array.isArray(App.assets)&&App.assets.length<=70000){
+      for(const a of App.assets){
+        if(!a||a.kind==='circuit'||UtilitiesEngine?.isUtility?.(a))continue;
+        if(Number.isFinite(Number(a.lat))&&Number.isFinite(Number(a.lon)))out.push(a);
+      }
+    }
+    return out;
+  },
+  snapLatLngToAsset(ll,opts={}){
+    if(!this.map||!ll)return null;
+    const z=Number(this.map.getZoom?.()||15);
+    const maxPx=Number(opts.maxPx||30);
+    const maxM=Number(opts.maxM||(z>=16?90:(z>=14?180:(z>=12?400:800))));
+    let basePt;
+    try{basePt=this.map.latLngToLayerPoint(ll);}catch(e){return null;}
+    let best=null,bestPx=Infinity,bestM=Infinity;
+    const origin={lat:Number(ll.lat),lon:Number(ll.lng)};
+    for(const a of this.measureSnapCandidates()){
+      let px=Infinity,m=Infinity;
+      try{px=basePt.distanceTo(this.map.latLngToLayerPoint([Number(a.lat),Number(a.lon)]));}catch(e){}
+      if(px>maxPx)continue;
+      m=this.distanceM(origin,{lat:Number(a.lat),lon:Number(a.lon)});
+      if(!Number.isFinite(m)||m>maxM)continue;
+      if(px<bestPx){best=a;bestPx=px;bestM=m;}
+    }
+    if(!best)return null;
+    return {asset:best,latlng:L.latLng(Number(best.lat),Number(best.lon)),px:bestPx,m:bestM,label:this.titleForGpsAsset(best)};
+  },
+  addMeasurePoint(rawLl,ev){
+    if(!this.measureMode)return;
+    const ll0=L.latLng(Number(rawLl.lat),Number(rawLl.lng??rawLl.lon));
+    if(!Number.isFinite(ll0.lat)||!Number.isFinite(ll0.lng))return;
+    const last=this._lastMeasureInput;
+    const now=Date.now();
+    if(last&&now-last.at<650&&this.distanceM({lat:last.lat,lon:last.lng},{lat:ll0.lat,lon:ll0.lng})<1.5)return;
+    this._lastMeasureInput={at:now,lat:ll0.lat,lng:ll0.lng};
+    const snap=this.measureSnapEnabled?this.snapLatLngToAsset(ll0):null;
+    const ll=snap?.latlng||ll0;
+    const layer=this.ensureMeasureLayer();
+    if(!layer)return;
+    try{ev?.originalEvent?.preventDefault?.();ev?.originalEvent?.stopPropagation?.();ev?.preventDefault?.();ev?.stopPropagation?.();}catch(e){}
+    try{
+      const icon=L.divIcon({className:'measure-dot-icon',html:`<div class="measure-dot ${snap?'snapped':''}"></div>`,iconSize:[24,24],iconAnchor:[12,12]});
+      L.marker(ll,{icon,interactive:false,zIndexOffset:5200}).addTo(layer);
+    }catch(e){
+      try{L.circleMarker(ll,{radius:8,color:'#2f5a31',weight:4,fillColor:'#fffaf0',fillOpacity:1,interactive:false}).addTo(layer);}catch(_){ }
+    }
+    this.measurePoints.push(L.latLng(ll.lat,ll.lng));
+    if(this.measurePoints.length===1){UI?.toast?.(snap?`First point snapped: ${snap.label}`:'First point set. Tap second point.');return;}
+    const a=this.measurePoints[0], b=this.measurePoints[1];
+    const m=this.distanceM({lat:a.lat,lon:a.lng},{lat:b.lat,lon:b.lng});
+    try{
+      L.polyline([a,b],{color:'#2f5a31',weight:5,opacity:.95,dashArray:'8 8',interactive:false}).addTo(layer);
+      const mid=L.latLng((a.lat+b.lat)/2,(a.lng+b.lng)/2);
+      L.tooltip({permanent:true,direction:'center',className:'measure-tooltip',interactive:false,offset:[0,0]}).setLatLng(mid).setContent(this.formatMeasureDistance(m)).addTo(layer);
+    }catch(e){}
+    this.stopMeasureTool(false);
+    UI?.toast?.(`${snap?'Snapped · ':''}Measured ${this.formatMeasureDistance(m)}.`);
+  },
+  handleMeasureMapClick(ev){
+    if(!this.measureMode)return;
+    const ll=ev?.latlng||this.latLngFromDomEvent(ev);
+    if(!ll)return;
+    this.addMeasurePoint(ll,ev);
+  },
   proximityOrigin(){return null;},
   proximityKind(){return 'other';},
   proximityLabelFor(){return 'Asset';},
@@ -2658,4 +3237,119 @@ const MapEngine={
   }
 };
 
-try{window.MapEngine=MapEngine; window.fmConnectedBtn=(btn,ev)=>MapEngine.handleConnectedCircuitsButton(btn,ev); window.fmMoreInfoBtn=(btn,ev)=>MapEngine.handleMoreInfoButton(btn,ev);}catch(e){}
+try{window.MapEngine=MapEngine; window.fmConnectedBtn=(btn,ev)=>MapEngine.handleConnectedCircuitsButton(btn,ev); window.fmMoreInfoBtn=(btn,ev)=>MapEngine.handleMoreInfoButton(btn,ev); window.fmPinDropAction=(action,lat,lon,id)=>MapEngine.handlePinDropAction(action,lat,lon,id); window.fmPinDropSaveFromPopup=(lat,lon,id)=>MapEngine.handlePinDropSaveFromPopup(lat,lon,id);}catch(e){}
+
+/* myMap v3.1.105: safer pin drop popup actions for Android/Leaflet popups */
+(function(){
+  if(!window.MapEngine)return;
+  const ME=window.MapEngine;
+  const esc=function(v){try{return (window.UI&&UI.esc)?UI.esc(v):String(v??'').replace(/[&<>\"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#39;'}[c]));}catch(e){return String(v??'');}};
+  const q=function(v){return String(v??'').replace(/\\/g,'\\\\').replace(/'/g,"\\'");};
+  ME.pinDropPopupHtml=function(ll,opts={}){
+    const lat=Number(ll?.lat), lon=Number(ll?.lng??ll?.lon);
+    if(!Number.isFinite(lat)||!Number.isFinite(lon))return '<div class="asset-popup pin-drop-popup"><b>Pin drop</b><p>Invalid pin location.</p></div>';
+    const saved=!!opts.saved;
+    const id=String(opts.id||opts.record?.id||'');
+    const comments=String(opts.comments??opts.record?.comments??'');
+    const maps=this.googleMapsUrlFor(lat,lon);
+    let circuits=[];
+    try{circuits=opts.record?.nearestCircuits250m||this.nearestCircuitsNear(lat,lon,250).slice(0,8);}catch(e){circuits=[];}
+    const title=saved?'Saved pin drop':'New pin drop';
+    const meta=saved&&opts.record?.localDateTime?opts.record.localDateTime:new Date().toLocaleString();
+    const actionSave=saved?'Update saved pin':'Save pin';
+    const removeLabel=saved?'Delete saved pin':'Remove pin';
+    const removeAction=saved?'deleteSaved':'remove';
+    const latS=String(lat), lonS=String(lon), idS=q(id);
+    return `<div class="asset-popup pin-drop-popup" data-pin-popup="1"><b>${title}</b><div class="popup-info-box"><div><b>Pin GPS</b><span>${lat.toFixed(6)}, ${lon.toFixed(6)}</span></div><div><b>Date / time</b><span>${esc(meta)}</span></div><div><b>Nearest circuits</b><span>${circuits.length?esc(circuits.join(', ')):'None within 250 m'}</span></div></div><label class="pin-comment-label">Comments<textarea class="pin-drop-comment" rows="3" placeholder="Add notes for this pin...">${esc(comments)}</textarea></label><div class="popup-actions"><a class="popup-btn" target="_blank" rel="noopener" href="${maps}">Open Google Maps</a><button type="button" class="popup-btn" data-pin-drop-action="proximity" data-lat="${latS}" data-lon="${lonS}" data-pin-id="${esc(id)}" onclick="window.fmPinDropAction&&window.fmPinDropAction('proximity',${latS},${lonS},'${idS}');return false;">Proximity 350m</button><button type="button" class="popup-btn primary" data-pin-drop-action="save" data-lat="${latS}" data-lon="${lonS}" data-pin-id="${esc(id)}" onclick="window.fmPinDropSaveFromPopup&&window.fmPinDropSaveFromPopup(${latS},${lonS},'${idS}');return false;">${actionSave}</button><button type="button" class="popup-btn danger" data-pin-drop-action="${removeAction}" data-lat="${latS}" data-lon="${lonS}" data-pin-id="${esc(id)}" onclick="window.fmPinDropAction&&window.fmPinDropAction('${removeAction}',${latS},${lonS},'${idS}');return false;">${removeLabel}</button></div><small>Saved pins keep comments, nearest circuits within 250 m, current date/time, GPS location and Google Maps link on this phone.</small></div>`;
+  };
+  const oldBind=ME.bindPinDropPopupActions;
+  ME.bindPinDropPopupActions=function(){
+    if(this._pinDropPopupActionsBoundV105)return;
+    this._pinDropPopupActionsBoundV105=true;
+    const handler=(e)=>{
+      const btn=e.target?.closest?.('[data-pin-drop-action]');
+      if(!btn)return;
+      try{e.preventDefault();e.stopPropagation();e.stopImmediatePropagation?.();}catch(_e){}
+      const action=String(btn.dataset.pinDropAction||'').trim();
+      const lat=Number(btn.dataset.lat), lon=Number(btn.dataset.lon);
+      const id=String(btn.dataset.pinId||'');
+      if(!action)return;
+      if(action==='save')return this.handlePinDropSaveFromPopup(lat,lon,id);
+      return this.handlePinDropAction(action,lat,lon,id);
+    };
+    document.addEventListener('click',handler,true);
+    document.addEventListener('touchend',handler,true);
+    document.addEventListener('pointerup',handler,true);
+    try{oldBind&&oldBind.call(this);}catch(e){}
+  };
+  const oldDrop=ME.dropHoldPin;
+  ME.dropHoldPin=function(ll,opts={}){
+    try{this.closeToolsSafe?.();}catch(e){}
+    const res=oldDrop?oldDrop.call(this,ll,opts):null;
+    setTimeout(()=>{try{this.pinDropMarker?.openPopup?.();this.refitOpenPopup?.();}catch(e){try{this.openPinDropPopup(ll,{saved:false});}catch(_){}}},260);
+    return res;
+  };
+  ME.removeTemporaryPinDrop=function(){return this.removeCurrentPinDrop(true);};
+  try{window.fmPinDropAction=(action,lat,lon,id)=>ME.handlePinDropAction(action,lat,lon,id);window.fmPinDropSaveFromPopup=(lat,lon,id)=>ME.handlePinDropSaveFromPopup(lat,lon,id);}catch(e){}
+})();
+
+/* myMap v3.1.107: polished pin drop popup + app-icon marker */
+(function(){
+  if(!window.MapEngine||!window.L)return;
+  const ME=window.MapEngine;
+  const esc=function(v){try{return (window.UI&&UI.esc)?UI.esc(v):String(v??'').replace(/[&<>\"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#39;'}[c]));}catch(e){return String(v??'');}};
+  const q=function(v){return String(v??'').replace(/\\/g,'\\\\').replace(/'/g,"\\'");};
+  const icon={
+    pin:'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s7-6.2 7-12a7 7 0 0 0-14 0c0 5.8 7 12 7 12z"/><circle cx="12" cy="9" r="2.4"/></svg>',
+    cal:'<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="5" width="16" height="15" rx="2"/><path d="M8 3v4M16 3v4M4 10h16M8 14h.01M12 14h.01M16 14h.01M8 17h.01M12 17h.01M16 17h.01"/></svg>',
+    net:'<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="7" r="2"/><circle cx="18" cy="7" r="2"/><circle cx="12" cy="18" r="2"/><path d="M8 8.5l3 7M16 8.5l-3 7M8 7h8"/></svg>',
+    ext:'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h6v6M20 4L10 14"/><path d="M12 6H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6"/></svg>',
+    target:'<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4M5 5l2.7 2.7M16.3 16.3L19 19M19 5l-2.7 2.7M7.7 16.3L5 19"/></svg>',
+    save:'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h12l2 2v14H5z"/><path d="M8 4v6h8V4M8 20v-6h8v6"/></svg>',
+    trash:'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M7 7l1 14h8l1-14M10 11v6M14 11v6"/></svg>'
+  };
+  ME.makePinDropIcon=function(saved=false){
+    return L.divIcon({
+      className:`pin-drop-leaflet-icon ${saved?'saved-pin-icon':'temp-pin-icon'}`,
+      html:`<div class="pin-drop-marker ${saved?'saved':'temp'}" aria-hidden="true"><span></span></div>`,
+      iconSize:[42,54], iconAnchor:[21,52], popupAnchor:[0,-48]
+    });
+  };
+  ME.pinDropPopupHtml=function(ll,opts={}){
+    const lat=Number(ll?.lat), lon=Number(ll?.lng??ll?.lon);
+    if(!Number.isFinite(lat)||!Number.isFinite(lon))return '<div class="asset-popup pin-drop-popup"><div class="pin-drop-title-row"><h3>Pin drop</h3></div><p>Invalid pin location.</p></div>';
+    const saved=!!opts.saved;
+    const id=String(opts.id||opts.record?.id||'');
+    const comments=String(opts.comments??opts.record?.comments??'');
+    const maps=this.googleMapsUrlFor(lat,lon);
+    let circuits=[];
+    try{circuits=opts.record?.nearestCircuits250m||this.nearestCircuitsNear(lat,lon,250).slice(0,8);}catch(e){circuits=[];}
+    const title=saved?'Saved pin drop':'New pin drop';
+    const meta=saved&&opts.record?.localDateTime?opts.record.localDateTime:new Date().toLocaleString();
+    const actionSave=saved?'Update saved pin':'Save pin';
+    const removeLabel=saved?'Delete saved pin':'Remove pin';
+    const removeAction=saved?'deleteSaved':'remove';
+    const latS=String(lat), lonS=String(lon), idS=q(id);
+    const circuitText=circuits.length?esc(circuits.join(', ')):'None within 250 m';
+    return `<div class="asset-popup pin-drop-popup" data-pin-popup="1"><div class="pin-drop-title-row"><h3>${title}</h3></div><div class="pin-detail-list"><div class="pin-detail-row"><span class="pin-detail-ico">${icon.pin}</span><div><b>Pin GPS</b><span>${lat.toFixed(6)}, ${lon.toFixed(6)}</span></div></div><div class="pin-detail-row"><span class="pin-detail-ico">${icon.cal}</span><div><b>Date / time</b><span>${esc(meta)}</span></div></div><div class="pin-detail-row"><span class="pin-detail-ico">${icon.net}</span><div><b>Nearest circuits</b><span>${circuitText}</span></div></div></div><div class="pin-separator"></div><label class="pin-comment-label">Comments<textarea class="pin-drop-comment" rows="3" placeholder="Add notes for this pin...">${esc(comments)}</textarea></label><div class="popup-actions"><a class="popup-btn" target="_blank" rel="noopener" href="${maps}">${icon.ext}<span>Open Google Maps</span></a><button type="button" class="popup-btn" data-pin-drop-action="proximity" data-lat="${latS}" data-lon="${lonS}" data-pin-id="${esc(id)}" onclick="window.fmPinDropAction&&window.fmPinDropAction('proximity',${latS},${lonS},'${idS}');return false;">${icon.target}<span>Proximity 350m</span></button><button type="button" class="popup-btn primary" data-pin-drop-action="save" data-lat="${latS}" data-lon="${lonS}" data-pin-id="${esc(id)}" onclick="window.fmPinDropSaveFromPopup&&window.fmPinDropSaveFromPopup(${latS},${lonS},'${idS}');return false;">${icon.save}<span>${actionSave}</span></button><button type="button" class="popup-btn danger" data-pin-drop-action="${removeAction}" data-lat="${latS}" data-lon="${lonS}" data-pin-id="${esc(id)}" onclick="window.fmPinDropAction&&window.fmPinDropAction('${removeAction}',${latS},${lonS},'${idS}');return false;">${icon.trash}<span>${removeLabel}</span></button></div><div class="pin-helper-note"><span class="pin-helper-ico">i</span><small>Saved pins keep comments, nearest circuits within 250 m, current date/time, GPS location and Google Maps link on this phone.</small></div></div>`;
+  };
+})();
+
+
+/* myMap v3.1.108: pin popup sizing/interaction stability */
+(function(){
+  if(!window.MapEngine)return;
+  const ME=window.MapEngine;
+  const oldPopupOptions=ME.popupOptions;
+  ME.popupOptions=function(){
+    const o=oldPopupOptions?oldPopupOptions.call(this):{};
+    return Object.assign({},o,{maxWidth:286,minWidth:240,autoPan:true,keepInView:true,autoPanPaddingTopLeft:[18,92],autoPanPaddingBottomRight:[18,64]});
+  };
+  const oldOpen=ME.openPinDropPopup;
+  ME.openPinDropPopup=function(ll,opts={}){
+    let r;
+    try{r=oldOpen?oldOpen.call(this,ll,opts):undefined;}catch(e){r=undefined;}
+    setTimeout(()=>{try{this.refitOpenPopup?.();}catch(_e){}},80);
+    return r;
+  };
+})();
