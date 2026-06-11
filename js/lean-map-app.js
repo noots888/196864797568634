@@ -56,7 +56,7 @@ var LeanMapApp={
     try{
       if(!('serviceWorker' in navigator))return;
       if(!(location.protocol==='https:' || location.hostname==='localhost' || location.hostname==='127.0.0.1'))return;
-      const reg=await navigator.serviceWorker.register('./service-worker.js',{scope:'./'}); try{await reg.update?.();}catch(e){}
+      const reg=await navigator.serviceWorker.register('./service-worker.js?v=mymap-v3-1-129_pwa_real_install_fix',{scope:'./'}); try{await reg.update?.();}catch(e){}
     }catch(e){}
   },
   updateReferenceToggleButtons(){
