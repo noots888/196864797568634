@@ -27,6 +27,7 @@ const MapEngine={
     this.bindPinDropPopupActions();
     setTimeout(()=>this.renderSavedPinDrops?.(true),700);
     this.bindGpsUiControls();
+    this.bindRotatedMapDragFix();
     this.loadGpsProfile();
     setTimeout(()=>{this.updateGpsButton();this.updateGpsProfileButtons();this.updateMapLayerButton?.();},50);
     setTimeout(()=>this.map.invalidateSize(),250);
@@ -2031,6 +2032,95 @@ const MapEngine={
       btn.addEventListener('click',ev=>{ev.preventDefault();ev.stopPropagation();ev.stopImmediatePropagation?.();this.setGpsProfile(btn.dataset.gpsProfile||btn.dataset.toolsGpsProfile||'walking');},{capture:true,passive:false});
     });
   },
+  bindRotatedMapDragFix(){
+    if(this._rotatedMapDragFixBound||!this.map)return;
+    const container=this.map.getContainer?.();
+    if(!container)return;
+    this._rotatedMapDragFixBound=true;
+    const pointFromEvent=ev=>{
+      const src=ev?.touches?.[0]||ev?.changedTouches?.[0]||ev;
+      const x=Number(src?.clientX), y=Number(src?.clientY);
+      return Number.isFinite(x)&&Number.isFinite(y)?{x,y}:null;
+    };
+    const ignoreTarget=target=>{
+      try{
+        return !!(target&&target.closest&&target.closest('.leaflet-marker-icon,.leaflet-popup,.leaflet-control,.lean-left-rail,.gps-patrol-panel,.plus-menu,.circuit-picker,.search-panel,.status-panel,.conductors-panel,.tools-panel,.reset-panel,.data-manager-panel,.overlay,.import-overlay,.hvtx-toggle-panel'));
+      }catch(e){return false;}
+    };
+    const active=()=>!!(this.gpsRotateHeading&&Math.abs(Number(this.mapRotationDeg)||0)>0.4&&this.map&&!this.measureMode);
+    const begin=ev=>{
+      if(!active())return;
+      if(ev?.pointerType==='mouse'&&ev.button!==0)return;
+      if(ev?.touches&&ev.touches.length!==1)return;
+      if(ignoreTarget(ev.target))return;
+      const p=pointFromEvent(ev); if(!p)return;
+      this._rotatedDragState={id:ev.pointerId,x:p.x,y:p.y,lastX:p.x,lastY:p.y,moved:false,startedAt:Date.now()};
+      try{this.map.dragging.disable();}catch(e){}
+      try{container.setPointerCapture?.(ev.pointerId);}catch(e){}
+      try{ev.preventDefault?.();ev.stopPropagation?.();ev.stopImmediatePropagation?.();}catch(e){}
+    };
+    const move=ev=>{
+      const st=this._rotatedDragState; if(!st)return;
+      if(st.id!=null&&ev.pointerId!=null&&st.id!==ev.pointerId)return;
+      const p=pointFromEvent(ev); if(!p)return;
+      const dx=p.x-st.lastX, dy=p.y-st.lastY;
+      st.lastX=p.x; st.lastY=p.y;
+      if(Math.abs(p.x-st.x)+Math.abs(p.y-st.y)>3)st.moved=true;
+      if(dx||dy){
+        const d=this.screenDeltaToRotatedMapDelta(dx,dy);
+        try{this.map.panBy([-d.x,-d.y],{animate:false,noMoveStart:true});}catch(e){}
+        try{this.onGpsMapUserMovementStart?.();}catch(e){}
+      }
+      try{ev.preventDefault?.();ev.stopPropagation?.();ev.stopImmediatePropagation?.();}catch(e){}
+    };
+    const end=ev=>{
+      const st=this._rotatedDragState; if(!st)return;
+      if(st.id!=null&&ev.pointerId!=null&&st.id!==ev.pointerId)return;
+      this._rotatedDragState=null;
+      try{container.releasePointerCapture?.(ev.pointerId);}catch(e){}
+      this.updateHeadingDragFix();
+      try{this.onGpsMapUserMovementEnd?.();this.reapplyMapRotation?.();}catch(e){}
+      if(st.moved){
+        this._suppressNextRotatedMapClickUntil=Date.now()+240;
+        try{ev.preventDefault?.();ev.stopPropagation?.();ev.stopImmediatePropagation?.();}catch(e){}
+      }
+    };
+    const killClick=ev=>{
+      if(Date.now()<(this._suppressNextRotatedMapClickUntil||0)){
+        try{ev.preventDefault?.();ev.stopPropagation?.();ev.stopImmediatePropagation?.();}catch(e){}
+      }
+    };
+    if(window.PointerEvent){
+      container.addEventListener('pointerdown',begin,{capture:true,passive:false});
+      container.addEventListener('pointermove',move,{capture:true,passive:false});
+      container.addEventListener('pointerup',end,{capture:true,passive:false});
+      container.addEventListener('pointercancel',end,{capture:true,passive:false});
+      container.addEventListener('click',killClick,{capture:true,passive:false});
+    }else{
+      container.addEventListener('touchstart',begin,{capture:true,passive:false});
+      container.addEventListener('touchmove',move,{capture:true,passive:false});
+      container.addEventListener('touchend',end,{capture:true,passive:false});
+      container.addEventListener('touchcancel',end,{capture:true,passive:false});
+      container.addEventListener('click',killClick,{capture:true,passive:false});
+    }
+  },
+  screenDeltaToRotatedMapDelta(dx,dy){
+    const rot=Number(this.mapRotationDeg)||0;
+    if(Math.abs(rot)<0.4)return {x:Number(dx)||0,y:Number(dy)||0};
+    const a=-rot*Math.PI/180;
+    const c=Math.cos(a), sn=Math.sin(a);
+    return {x:(Number(dx)||0)*c-(Number(dy)||0)*sn,y:(Number(dx)||0)*sn+(Number(dy)||0)*c};
+  },
+  updateHeadingDragFix(){
+    if(!this.map)return;
+    const on=!!(this.gpsRotateHeading&&Math.abs(Number(this.mapRotationDeg)||0)>0.4);
+    const c=this.map.getContainer?.();
+    if(c)c.classList.toggle('map-rotated-drag-fixed',on);
+    try{
+      if(on)this.map.dragging.disable();
+      else if(!this._rotatedDragState)this.map.dragging.enable();
+    }catch(e){}
+  },
   setGpsMode(mode='free',opts={}){
     const wanted=['free','follow','track'].includes(mode)?mode:'free';
     this.gpsMode=wanted;
@@ -2293,6 +2383,7 @@ const MapEngine={
       pane.style.transform=Math.abs(rot)>0.4?`rotate(${rot.toFixed(2)}deg)`:'';
       pane.style.willChange=Math.abs(rot)>0.4?'transform':'';
     }
+    this.updateHeadingDragFix?.();
   },
   reapplyMapRotation(){
     if(!this.gpsRotateHeading){

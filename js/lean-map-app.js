@@ -23,6 +23,7 @@ var LeanMapApp={
     try{
       this.bind();
       await this.clearOldShellCache();
+      await this.registerPwaWorker();
       UI.progress(true,'Starting myMap…','Loading core map',8);
       if(window.FieldMapConductorDataLoader?.ready){
         UI.progress(true,'Loading conductor reference…','Reading saved conductor JSON if loaded',12);
@@ -48,10 +49,15 @@ var LeanMapApp={
     }
   },
   async clearOldShellCache(){
-    try{if('serviceWorker' in navigator){const regs=await navigator.serviceWorker.getRegistrations(); await Promise.all(regs.map(r=>r.unregister().catch(()=>{})));}}
-    catch(e){}
     try{if(window.caches){const keys=await caches.keys(); await Promise.all(keys.filter(k=>/^field-map-|^fieldMap/i.test(k)).map(k=>caches.delete(k)));}}
     catch(e){}
+  },
+  async registerPwaWorker(){
+    try{
+      if(!('serviceWorker' in navigator))return;
+      if(!(location.protocol==='https:' || location.hostname==='localhost' || location.hostname==='127.0.0.1'))return;
+      await navigator.serviceWorker.register('./service-worker.js?v=mymap-v3-1-127_manifest_install_fix',{scope:'./'});
+    }catch(e){}
   },
   updateReferenceToggleButtons(){
     const mode=String(MapEngine?.currentDisplay||'').toLowerCase();

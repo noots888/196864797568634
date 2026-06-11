@@ -299,7 +299,7 @@
       if(document.getElementById('hvCrossingStyle'))return;
       const st=document.createElement('style'); st.id='hvCrossingStyle';
       st.textContent=`
-        .hvtx-crossing-icon{min-width:42px;height:42px;padding:0 6px;border-radius:999px;display:flex;align-items:center;justify-content:center;font:900 12px/1 system-ui,-apple-system,Segoe UI,sans-serif;color:#fff;border:3px solid #fff;box-shadow:0 5px 16px rgba(0,0,0,.55);letter-spacing:.2px;white-space:nowrap;box-sizing:border-box;}
+        .hvtx-crossing-icon{min-width:42px;height:42px;padding:0 6px;border-radius:999px;display:flex;align-items:center;justify-content:center;font:900 12px/1 system-ui,-apple-system,Segoe UI,sans-serif;color:#fff;border:3px solid #fff;box-shadow:0 5px 16px rgba(0,0,0,.55);letter-spacing:.2px;white-space:nowrap;box-sizing:border-box;} .leaflet-container.map-heading-up .hvtx-crossing-icon{transform:rotate(var(--map-counter-rotation,0deg))!important;transform-origin:center center!important;backface-visibility:hidden;}
         .hvtx-crossing-icon.stacked{min-width:54px;font-size:11px;}
         .hvtx-crossing-icon.hv{background:#b31313;}
         .hvtx-crossing-icon.tx{background:#b31313;}
@@ -1213,5 +1213,5 @@
     if(isCombined(wanted))out.push(...(this.spatialDxMatchesForLine(wanted)||[]));
     return this.dedupeList?this.dedupeList(out):out;
   };
-  try{Diagnostics?.log?.('HV/TX strict circuit matching','v3.1.125 exact-only for normal circuits; alias/spatial only for slashed circuits');}catch(e){}
+  try{Diagnostics?.log?.('HV/TX strict circuit matching','v3.1.126 exact-only for normal circuits; rotate-safe marker icons');}catch(e){}
 })();
