@@ -709,3 +709,11 @@ html,body,#map{height:100dvh;min-height:100%;}
   .pin-drop-popup .popup-btn.primary{min-height:42px!important;}
   .pin-drop-popup .pin-helper-note{margin-top:9px!important;}
 }
+
+/* myMap V3.1.126 heading-up fix: rotated-map drag stays natural; pole markers move with map while label text remains readable. */
+.leaflet-container.map-heading-up.map-rotated-drag-fixed{touch-action:none;}
+.leaflet-container.map-heading-up .asset-dot-wrap,
+.leaflet-container.map-heading-up .asset-dot{transform:none!important;}
+.leaflet-container.map-heading-up .asset-dot-num{transform:translateX(-50%) rotate(var(--map-counter-rotation,0deg))!important;transform-origin:center center!important;}
+.leaflet-container.map-heading-up .hvtx-crossing-icon{transform:rotate(var(--map-counter-rotation,0deg))!important;transform-origin:center center!important;backface-visibility:hidden;}
+.leaflet-container.map-heading-up .leaflet-marker-icon{will-change:transform;}
