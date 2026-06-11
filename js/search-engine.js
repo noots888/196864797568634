@@ -2,7 +2,7 @@ const SearchEngine={
   lineMap:new Map(),
   assetMap:new Map(),
   conductorSections:[],
-  pass2IndexVersion:'base-r1-pass2-indexed-search-v33-ref-path-index-fix',
+  pass2IndexVersion:'base-r1-pass2-indexed-search-v34-oh-hv-spur-branch',
   docCache:null,
   kindIndex:null,
   indexRunning:false,
@@ -29,7 +29,11 @@ const SearchEngine={
   words(s){return String(s||'').toUpperCase().split(/[^A-Z0-9]+/).filter(Boolean);},
   stripZeros(s){
     const text=String(s||'').trim();
-    const m=text.match(/^(.*?)(\d+)([A-Z]{0,3})$/i);
+    try{
+      const p=this.poleIdParts?.(text);
+      if(p?.norm)return this.compact(p.norm);
+    }catch(e){}
+    const m=text.match(/^(.*?)(\d+)([A-Z]{0,4})$/i);
     if(!m)return this.compact(text);
     const n=String(Number(m[2]));
     const suffix=String(m[3]||'').toUpperCase();
@@ -49,7 +53,7 @@ const SearchEngine={
     const original=String(value||'').trim().replace(/\s+/g,' ');
     if(!original)return '';
     // If a structure label was passed in, strip the pole part first.
-    const full=original.match(/^(.+?\b[A-Z0-9]*\d[A-Z0-9]{0,4})\s*[-_]\s*(\d{3,6}(?:\s*\/\s*\d{1,6})?)$/i);
+    const full=original.match(/^(.+?\b[A-Z0-9]*\d[A-Z0-9]{0,4})\s*[-_]\s*([A-Z]{0,3}\d{1,6}[A-Z]{0,3}(?:\s*\/\s*[A-Z]{0,4}\d{0,6}[A-Z]{0,4})?|\d{1,6}[A-Z]{0,4}(?:\s*\/\s*[A-Z]{0,4}\d{0,6}[A-Z]{0,4})?)$/i);
     if(full&&/[A-Z]{1,4}\s*[-–—]\s*[A-Z]{1,4}/i.test(full[1]))return this.formatCircuitName(full[1]);
     const multiSlash=original.match(/^([A-Z]{1,4})\s*[-–—]\s*([A-Z]{1,4}(?:\s*\/\s*[A-Z]{1,4})+)\s*(?:NO\.?\s*)?([A-Z0-9]{1,4})$/i);
     if(multiSlash&&this.validCircuitToken(multiSlash[3]))return `${multiSlash[1].toUpperCase()}-${multiSlash[2].toUpperCase().replace(/\s*\/\s*/g,'/')} ${multiSlash[3].toUpperCase()}`;
@@ -204,7 +208,7 @@ const SearchEngine={
     if(!src)return out;
     // Only accept proper circuit designators containing a number (81, 91, X1, etc).
     // This prevents truncated source text like "KW-KE" + "STEEL" becoming fake lines like "KW-KE STEE".
-    const re=/\b([A-Z]{1,4})\s*[-–—]\s*([A-Z]{1,4}(?:\s*\/\s*[A-Z]{1,4})*)\s*([A-Z0-9]*\d[A-Z0-9]{0,3})\s*(?:[-–—]\s*(\d{1,6}[A-Z]{0,3}(?:\s*\/\s*\d{0,6}[A-Z]{0,3})?))?/g;
+    const re=/\b([A-Z]{1,4})\s*[-–—]\s*([A-Z]{1,4}(?:\s*\/\s*[A-Z]{1,4})*)\s*([A-Z0-9]*\d[A-Z0-9]{0,3})\s*(?:[-–—]\s*([A-Z]{0,3}\d{1,6}[A-Z]{0,3}(?:\s*\/\s*[A-Z]{0,4}\d{0,6}[A-Z]{0,4})?|\d{1,6}[A-Z]{0,4}(?:\s*\/\s*[A-Z]{0,4}\d{0,6}[A-Z]{0,4})?))?/g;
     let m;
     while((m=re.exec(src))){
       const lineRaw=`${m[1]}-${String(m[2]||'').replace(/\s*\/\s*/g,'/')} ${m[3]}`;
@@ -289,6 +293,16 @@ const SearchEngine={
   poleIdParts(pole){
     const text=String(pole||'').trim().toUpperCase().replace(/\s+/g,'');
     if(!text)return null;
+    // Supports branch IDs such as 0065/XY where the spur leg is letters only.
+    let letterBranch=text.match(/^0*(\d{1,6})([A-Z]{0,3})\/([A-Z]{1,4})$/i);
+    if(letterBranch){
+      const num=Number(letterBranch[1]||0);
+      const suffix=String(letterBranch[2]||'').toUpperCase();
+      const branchPrefix=String(letterBranch[3]||'').toUpperCase();
+      if(!Number.isFinite(num))return null;
+      let branchSort=0; for(let i=0;i<branchPrefix.length;i++)branchSort+=((branchPrefix.charCodeAt(i)-64)||0)*Math.pow(27,branchPrefix.length-i-1);
+      return {num,suffix,branchNum:0,branchPrefix,branchSuffix:'',isBranch:true,rootNum:num,sortNum:num,sortBranch:branchSort||1,norm:String(num)+(suffix||'')+'/'+branchPrefix,raw:text};
+    }
     // Supports normal structures (0113A), gantries (G0000 / 0000G), and split-leg
     // structures such as 0280/001 or 0280/G0000.  Split-leg IDs are common on
     // tee/branch legs; they must not collapse into plain 001 or disappear from map dots.
@@ -352,7 +366,7 @@ const SearchEngine={
   extractStructureRefFromLabel(text){
     const src=String(text||'').trim().toUpperCase();
     if(!src)return null;
-    const re=/\b([A-Z]{1,4})\s*[-–—]\s*([A-Z]{1,4}(?:\s*\/\s*[A-Z]{1,4})*)\s*([A-Z0-9]*\d[A-Z0-9]{0,3})\s*[-–—_ ]\s*(\d{1,6}[A-Z]{0,3}(?:\s*\/\s*[A-Z]{0,3}\d{0,6}[A-Z]{0,3})?|[A-Z]{1,3}\d{1,6})\b/i;
+    const re=/\b([A-Z]{1,4})\s*[-–—]\s*([A-Z]{1,4}(?:\s*\/\s*[A-Z]{1,4})*)\s*([A-Z0-9]*\d[A-Z0-9]{0,3})\s*[-–—_ ]\s*([A-Z]{0,3}\d{1,6}[A-Z]{0,3}(?:\s*\/\s*[A-Z]{0,4}\d{0,6}[A-Z]{0,4})?|\d{1,6}[A-Z]{0,4}(?:\s*\/\s*[A-Z]{0,4}\d{0,6}[A-Z]{0,4})?|[A-Z]{1,3}\d{1,6})\b/i;
     const m=src.match(re);
     if(!m)return null;
     const line=this.formatCircuitName(`${m[1]}-${String(m[2]||'').replace(/\s*\/\s*/g,'/')} ${m[3]}`);
@@ -1454,14 +1468,21 @@ const SearchEngine={
       s=s.replace(/,\s*[A-Z0-9\-\/ ]*$/,'').trim();
       let token='';
       // Prefer the pole suffix after a full circuit label: LINE 81-0098A, LINE 71-0002/, LINE 71-0000G.
-      let m=s.match(/\b[A-Z0-9]{1,8}\s*-\s*[A-Z0-9]{1,8}(?:\s*\/\s*[A-Z0-9]{1,8})*\s+(?:X\d|[A-Z]?\d{1,4}[A-Z0-9]{0,3})\s*-\s*([A-Z]{0,3}\d{1,6}[A-Z]{0,3}|\d{1,6}[A-Z]{0,3})(?:\s*\/\s*[A-Z0-9]{0,8})?/i);
+      let m=s.match(/\b[A-Z0-9]{1,8}\s*[-–—]\s*[A-Z0-9]{1,8}(?:\s*\/\s*[A-Z0-9]{1,8})*\s+(?:X\d|[A-Z]?\d{1,4}[A-Z0-9]{0,3})\s*[-–—]\s*([A-Z]{0,3}\d{1,6}[A-Z]{0,3}(?:\s*\/\s*[A-Z]{0,4}\d{0,6}[A-Z]{0,4})?|\d{1,6}[A-Z]{0,4}(?:\s*\/\s*[A-Z]{0,4}\d{0,6}[A-Z]{0,4})?)/i);
       if(m)token=m[1];
       if(!token){
-        m=s.match(/(?:^|\b)([A-Z]{0,3}\d{1,6}[A-Z]{0,3}|\d{1,6}[A-Z]{0,3})(?:\s*\/\s*[A-Z0-9]{0,8})?\s*$/i);
+        m=s.match(/(?:^|\b)([A-Z]{0,3}\d{1,6}[A-Z]{0,3}(?:\s*\/\s*[A-Z]{0,4}\d{0,6}[A-Z]{0,4})?|\d{1,6}[A-Z]{0,4}(?:\s*\/\s*[A-Z]{0,4}\d{0,6}[A-Z]{0,4})?)\s*$/i);
         if(m)token=m[1];
       }
       if(!token)return null;
-      token=String(token||'').toUpperCase().replace(/[^A-Z0-9]/g,'');
+      token=String(token||'').toUpperCase().replace(/\s+/g,'').replace(/[^A-Z0-9/]/g,'');
+      const branchParts=this.poleIdParts?.(token);
+      if(branchParts?.isBranch){
+        const b=Number(branchParts.sortBranch||branchParts.branchNum||1);
+        const frac=Math.min(0.79,0.20+(b/10000));
+        return {order:branchParts.num+frac,num:branchParts.num,key:branchParts.norm,token};
+      }
+      token=token.replace(/[^A-Z0-9]/g,'');
       // Public transmission pole labels use G0000 as the terminal/end structure on many circuits.
       // Treat it as an end marker, not as pole 0. Putting G0000 at the start creates the false
       // diagonal connected lines seen when drawing from the optimiser.
@@ -1509,7 +1530,7 @@ const SearchEngine={
   buildCircuitPathIndex(records=null,opts={}){
     this.ensureIndexContainers();
     const list=Array.isArray(records)?records:(App.assets||[]);
-    const stamp=`${list.length}|${App?.lastImport?.time||''}|${this.lineMap?.size||0}|v34`;
+    const stamp=`${list.length}|${App?.lastImport?.time||''}|${this.lineMap?.size||0}|v35`;
     if(!opts.force&&this.circuitPathIndexStamp===stamp&&this.circuitPathIndex?.size)return this.circuitPathIndex;
     const started=Date.now();
     const groups=new Map();
@@ -1877,6 +1898,23 @@ const SearchEngine={
     const bp=String(b?.poleNumber||'')||String(b?.structure||b?.label||'');
     const av=SearchEngine.poleIdSortValue(ap);
     const bv=SearchEngine.poleIdSortValue(bp);
+    const rawOrder=(x)=>{
+      const raw=x?.raw||{};
+      const vals=[x?.rawStructure,x?.structureId,raw.structure_id,raw.STRUCTURE_ID,raw.structureId,x?.id,x?.assetId,x?.globalId];
+      for(const v of vals){
+        const m=String(v||'').match(/(?:^|\b)T?0*(\d{1,8})(?:\b|$)/i);
+        if(m){const n=Number(m[1]); if(Number.isFinite(n))return n;}
+      }
+      const lat=Number(x?.lat), lon=Number(x?.lon);
+      if(Number.isFinite(lat)&&Number.isFinite(lon))return (lat+90)*100000+(lon+180);
+      return Infinity;
+    };
+    const aBad=!Number.isFinite(Number(av.num))||Number(av.num)===0||av.num===Infinity;
+    const bBad=!Number.isFinite(Number(bv.num))||Number(bv.num)===0||bv.num===Infinity;
+    if(aBad&&bBad){
+      const ao=rawOrder(a), bo=rawOrder(b);
+      if(ao!==bo)return ao-bo;
+    }
     if(av.num!==bv.num)return av.num-bv.num;
     const abr=av.isBranch?1:0, bbr=bv.isBranch?1:0;
     if(abr!==bbr)return abr-bbr;
@@ -1884,6 +1922,8 @@ const SearchEngine={
     if(av.suffix!==bv.suffix)return String(av.suffix||'').localeCompare(String(bv.suffix||''));
     if((av.branchPrefix||'')!==(bv.branchPrefix||''))return String(av.branchPrefix||'').localeCompare(String(bv.branchPrefix||''));
     if((av.branchSuffix||'')!==(bv.branchSuffix||''))return String(av.branchSuffix||'').localeCompare(String(bv.branchSuffix||''));
+    const ao=rawOrder(a), bo=rawOrder(b);
+    if(ao!==bo)return ao-bo;
     return String(a?.label||'').localeCompare(String(b?.label||''));
   },
   highestPoleForLine(line,assets){

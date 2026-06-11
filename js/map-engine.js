@@ -187,6 +187,18 @@ const MapEngine={
     const lat=Number(a?.lat), lon=Number(a?.lon);
     return Number.isFinite(lat)&&Number.isFinite(lon)?[lat,lon]:null;
   },
+  assetOrderForDots(a){
+    try{
+      const raw=a?.raw||{};
+      const vals=[a?.rawStructure,a?.structureId,raw.structure_id,raw.STRUCTURE_ID,raw.structureId,a?.id,a?.assetId,a?.globalId];
+      for(const v of vals){
+        const m=String(v||'').match(/(?:^|\b)T?0*(\d{1,8})(?:\b|$)/i);
+        if(m){const n=Number(m[1]); if(Number.isFinite(n))return n;}
+      }
+    }catch(e){}
+    const lat=Number(a?.lat), lon=Number(a?.lon);
+    return Number.isFinite(lat)&&Number.isFinite(lon)?((lat+90)*100000+(lon+180)):Infinity;
+  },
   markerLatLng(a){
     const ll=this.assetLatLng(a);
     if(!ll)return null;
@@ -203,9 +215,19 @@ const MapEngine={
       const refs=SearchEngine?.lineRefsForAsset?.(a,true)||[];
       const pole=String(a?.poleNumber||refs[0]?.pole||'').trim();
       const line=SearchEngine?.compact?.(refs[0]?.line||a?.line||'')||'';
-      if(line&&pole)return `${line}|P${SearchEngine.stripZeros(pole)}`;
+      const parts=SearchEngine?.poleIdParts?.(pole);
+      const stripped=SearchEngine?.stripZeros?.(pole)||'';
+      const zeroPole=!!parts&&Number(parts.num)===0&&!parts.isBranch;
+      // Public secure transmission pole files can store every PIC-PNJ/BSN/KEM point as pole "0".
+      // Do not collapse those into one marker identity; fall back to the real structure id/GPS.
+      if(line&&pole&&!zeroPole&&stripped&&stripped!=='0')return `${line}|P${stripped}`;
+      const raw=a?.raw||{};
+      const sid=String(a?.rawStructure||raw.structure_id||raw.STRUCTURE_ID||a?.structureId||a?.id||'').trim();
+      const lat=Number(a?.lat), lon=Number(a?.lon);
+      if(line&&sid)return `${line}|SID${SearchEngine?.compact?.(sid)||sid}|${Number.isFinite(lat)?lat.toFixed(7):''}|${Number.isFinite(lon)?lon.toFixed(7):''}`;
+      if(line&&Number.isFinite(lat)&&Number.isFinite(lon))return `${line}|GPS${lat.toFixed(7)},${lon.toFixed(7)}`;
     }catch(e){}
-    return String(a?.id||a?.label||a?.gisLabel||'');
+    return String(a?.id||a?.label||a?.gisLabel||`${a?.lat||''},${a?.lon||''}`);
   },
   prepareMapDotOffsets(list=[]){
     const groups=new Map();
@@ -296,11 +318,20 @@ const MapEngine={
     try{
       const refs=SearchEngine?.lineRefsForAsset?.(a,true)||[];
       const pole=refs[0]?.pole||a?.poleNumber||a?.structureNumber||a?.nameplate||a?.label||'';
-      const m=String(pole||'').match(/(\d{1,6}[A-Z]?)\s*$/i)||String(pole||'').match(/(\d{1,6}[A-Z]?)/i);
-      return m?m[1]:'';
+      const parts=SearchEngine?.poleIdParts?.(pole);
+      if(parts?.norm){
+        if(Number(parts.num)===0&&!parts.isBranch)return '';
+        return parts.norm;
+      }
+      const m=String(pole||'').match(/(\d{1,6}[A-Z]{0,3}(?:\/[A-Z0-9]{1,8})?)\s*$/i)||String(pole||'').match(/(\d{1,6}[A-Z]{0,3}(?:\/[A-Z0-9]{1,8})?)/i);
+      if(!m)return '';
+      const label=m[1].replace(/^0+(?=\d)/,'');
+      return /^0+$/.test(label)?'':label;
     }catch(e){
-      const m=String(a?.poleNumber||a?.label||'').match(/(\d{1,6}[A-Z]?)/i);
-      return m?m[1]:'';
+      const m=String(a?.poleNumber||a?.label||'').match(/(\d{1,6}[A-Z]{0,3}(?:\/[A-Z0-9]{1,8})?)/i);
+      if(!m)return '';
+      const label=m[1].replace(/^0+(?=\d)/,'');
+      return /^0+$/.test(label)?'':label;
     }
   },
   structureNumberForDot(a){
@@ -308,12 +339,14 @@ const MapEngine={
       const refs=SearchEngine?.lineRefsForAsset?.(a,true)||[];
       const pole=refs[0]?.pole||a?.poleNumber||a?.structureNumber||a?.nameplate||a?.label||'';
       const p=SearchEngine?.poleIdParts?.(pole);
-      if(p&&Number.isFinite(Number(p.num)))return Number(p.num);
+      if(p&&Number.isFinite(Number(p.num)))return Number(p.num)>0?Number(p.num):NaN;
       const m=String(pole||'').match(/(\d{1,6})/);
-      return m?Number(m[1]):NaN;
+      const num=m?Number(m[1]):NaN;
+      return Number.isFinite(num)&&num>0?num:NaN;
     }catch(e){
       const m=String(a?.poleNumber||a?.label||'').match(/(\d{1,6})/);
-      return m?Number(m[1]):NaN;
+      const num=m?Number(m[1]):NaN;
+      return Number.isFinite(num)&&num>0?num:NaN;
     }
   },
   sampleCircuitDots(list=[],every=20){
@@ -332,30 +365,77 @@ const MapEngine={
     };
     const add=(a,label='')=>{
       const k=this.mapDotIdentity(a)||`${a?.lat},${a?.lon}`;
-      if(seen.has(k))return;
+      if(seen.has(k))return false;
       seen.add(k);
       out.push(cloneWithLabel(a,label));
+      return true;
+    };
+    const actualPolePart=(a)=>{
+      const refs=SearchEngine?.lineRefsForAsset?.(a,true)||[];
+      return SearchEngine?.poleIdParts?.(refs[0]?.pole||a?.poleNumber||a?.label||a?.structure||'');
+    };
+    const distKm=(a,b)=>{
+      const la=Number(a?.lat), lo=Number(a?.lon), lb=Number(b?.lat), lob=Number(b?.lon);
+      if(!Number.isFinite(la)||!Number.isFinite(lo)||!Number.isFinite(lb)||!Number.isFinite(lob))return Infinity;
+      const dy=(la-lb)*111; const dx=(lo-lob)*111*Math.cos(((la+lb)/2)*Math.PI/180);
+      return Math.sqrt(dx*dx+dy*dy);
     };
     for(const group of groups.values()){
-      const arr=group.slice().sort(SearchEngine?.sortByStructure||(()=>0));
+      let arr=group.slice().sort((a,b)=>SearchEngine?.sortByStructure?.(a,b)||this.assetOrderForDots(a)-this.assetOrderForDots(b));
+      // Deduplicate public-secure pole files where each point can be repeated three times.
+      const unique=[]; const uniqueSeen=new Set();
+      for(const a of arr){const k=this.mapDotIdentity(a)||`${a?.lat},${a?.lon}`; if(uniqueSeen.has(k))continue; uniqueSeen.add(k); unique.push(a);}
+      arr=unique;
       const n=arr.length;
       if(!n)continue;
-      add(arr[0]);
+      const realParts=arr.map(actualPolePart).filter(p=>p&&Number(p.num)>0);
+      const hasRealNumbering=realParts.length>=Math.min(5,Math.ceil(n*0.1));
+      add(arr[0],hasRealNumbering?'':(this.structureLabelForDot(arr[0])||'1'));
       let addedMiddle=0;
-      for(let i=1;i<n-1;i++){
-        const a=arr[i];
-        if(a?.kind==='substation'||a?.kind==='depot'){add(a);continue;}
-        const num=this.structureNumberForDot(a);
-        if(Number.isFinite(num)&&every>0&&num%every===0){add(a,this.structureLabelForDot(a)||String(num));addedMiddle++;continue;}
+      if(hasRealNumbering){
+        for(let i=1;i<n-1;i++){
+          const a=arr[i];
+          if(a?.kind==='substation'||a?.kind==='depot'){add(a);continue;}
+          const num=this.structureNumberForDot(a);
+          if(Number.isFinite(num)&&num>0&&every>0&&num%every===0){add(a,this.structureLabelForDot(a)||String(num));addedMiddle++;continue;}
+        }
+      }else{
+        // No usable structure numbers, e.g. public secure PIC-PNJ/BSN/KEM records labelled 0.
+        // Use sequence markers plus spatial backup markers so spur legs still get indicators.
+        const interval=Math.max(8,Number(every)||20);
+        for(let i=interval-1;i<n-1;i+=interval){
+          if(add(arr[i],String(i+1)))addedMiddle++;
+        }
+        const chosen=[];
+        for(const a of out){
+          const ak=this.lineKeyForAsset(a)||'line';
+          const gk=this.lineKeyForAsset(arr[0])||'line';
+          if(ak===gk)chosen.push(a);
+        }
+        const tileSeen=new Set();
+        for(const a of chosen){
+          const lat=Number(a?.lat), lon=Number(a?.lon);
+          if(Number.isFinite(lat)&&Number.isFinite(lon))tileSeen.add(`${Math.round(lat/0.055)}|${Math.round(lon/0.055)}`);
+        }
+        let backups=0;
+        for(let i=0;i<n&&backups<70;i+=Math.max(3,Math.floor(interval/2))){
+          const a=arr[i];
+          const lat=Number(a?.lat), lon=Number(a?.lon);
+          if(!Number.isFinite(lat)||!Number.isFinite(lon))continue;
+          const tile=`${Math.round(lat/0.055)}|${Math.round(lon/0.055)}`;
+          if(tileSeen.has(tile))continue;
+          let near=false; for(const c of chosen){if(distKm(a,c)<3.5){near=true;break;}}
+          if(near)continue;
+          if(add(a,String(i+1))){tileSeen.add(tile);chosen.push(a);backups++;addedMiddle++;}
+        }
       }
-      // Some branch/odd-labelled circuits may not have clean multiples of 20; fall back to every-20 structure-order indicators and label them.
       if(!addedMiddle&&n>every){
-        for(let i=every;i<n-1;i+=every){
+        for(let i=every-1;i<n-1;i+=every){
           const a=arr[i];
           add(a,this.structureLabelForDot(a)||String(i+1));
         }
       }
-      if(n>1)add(arr[n-1]);
+      if(n>1)add(arr[n-1],hasRealNumbering?'':(this.structureLabelForDot(arr[n-1])||String(n)));
     }
     return out;
   },
@@ -1525,8 +1605,14 @@ const MapEngine={
   connectedStructureOrderFromLabel(label,asset=null){
     const s=String(label||'').toUpperCase().replace(/[–—_]+/g,'-').replace(/\s+/g,' ').trim();
     const tryToken=(tok='')=>{
-      tok=String(tok||'').toUpperCase().replace(/[^A-Z0-9]/g,'');
+      tok=String(tok||'').toUpperCase().replace(/\s+/g,'').replace(/[^A-Z0-9/]/g,'');
       if(!tok)return null;
+      const bp=SearchEngine?.poleIdParts?.(tok);
+      if(bp?.isBranch){
+        const b=Number(bp.sortBranch||bp.branchNum||1);
+        return {order:bp.num+Math.min(0.79,0.20+(b/10000)),key:bp.norm,raw:tok};
+      }
+      tok=tok.replace(/[^A-Z0-9]/g,'');
       let m=tok.match(/^G(\d{1,6})$/i);
       if(m)return {order:1000000+Number(m[1]||0),key:'G'+String(Number(m[1]||0)),raw:tok};
       m=tok.match(/^(\d{1,6})G$/i);
@@ -1539,7 +1625,7 @@ const MapEngine={
       return null;
     };
     // Prefer the structure suffix that follows the circuit name, e.g. NT-HBK 81-0057 or KAT-WAG 71-G0000.
-    let matches=[]; let re=/-\s*([A-Z]?\d{1,6}[A-Z]{0,3})(?=\b|,|\s|$)/gi; let m;
+    let matches=[]; let re=/-\s*([A-Z]{0,3}\d{1,6}[A-Z]{0,3}(?:\/[A-Z]{0,4}\d{0,6}[A-Z]{0,4})?)(?=\b|,|\s|$)/gi; let m;
     while((m=re.exec(s)))matches.push(m[1]);
     for(let i=matches.length-1;i>=0;i--){const r=tryToken(matches[i]); if(r)return r;}
     // Fallback to normal pole/structure fields when the imported label has already been normalised.
@@ -3351,5 +3437,213 @@ try{window.MapEngine=MapEngine; window.fmConnectedBtn=(btn,ev)=>MapEngine.handle
     try{r=oldOpen?oldOpen.call(this,ll,opts):undefined;}catch(e){r=undefined;}
     setTimeout(()=>{try{this.refitOpenPopup?.();}catch(_e){}},80);
     return r;
+  };
+})();
+
+/* myMap v3.1.117: public-secure pole "0" labels no longer collapse map pole indicators; order-based 20 markers restored. */
+
+/* myMap v3.1.117: BSN/public-secure spur markers - show sequence indicators on every branch/grid when pole numbers are hidden as 0. */
+(function(){
+  const ME=window.MapEngine, SE=window.SearchEngine;
+  if(!ME||!SE)return;
+  const n=v=>{const x=Number(v);return Number.isFinite(x)?x:null;};
+  const distKm=(a,b)=>{const la=n(a?.lat),lo=n(a?.lon),lb=n(b?.lat),lob=n(b?.lon); if(la===null||lo===null||lb===null||lob===null)return Infinity; const dy=(la-lb)*111; const dx=(lo-lob)*111*Math.cos(((la+lb)/2)*Math.PI/180); return Math.sqrt(dx*dx+dy*dy);};
+  const oldStructureLabel=ME.structureLabelForDot;
+  const oldStructureNumber=ME.structureNumberForDot;
+  ME.sampleCircuitDots=function(list=[],every=20){
+    if(!Array.isArray(list)||list.length<=30)return list||[];
+    const groups=new Map();
+    for(const a of list){const k=this.lineKeyForAsset?.(a)||'line'; if(!groups.has(k))groups.set(k,[]); groups.get(k).push(a);}
+    const out=[]; const seen=new Set();
+    const clone=(a,label)=>label?Object.assign({},a,{_sampleMarkerNum:String(label)}):a;
+    const ident=a=>this.mapDotIdentity?.(a)||`${a?.lat},${a?.lon}`;
+    const add=(a,label='')=>{if(!a)return false; const k=ident(a); if(seen.has(k))return false; seen.add(k); out.push(clone(a,label)); return true;};
+    const actualPolePart=a=>{try{const refs=SE.lineRefsForAsset?.(a,true)||[]; return SE.poleIdParts?.(refs[0]?.pole||a?.poleNumber||a?.label||a?.structure||'');}catch(e){return null;}};
+    const labelFor=a=>{try{return oldStructureLabel?.call(this,a)||'';}catch(e){return '';}};
+    const numFor=a=>{try{return oldStructureNumber?.call(this,a);}catch(e){return NaN;}};
+    const rawOrder=a=>{
+      const raw=a?.raw||{}; const vals=[a?.rawStructure,a?.structureId,raw.structure_id,raw.STRUCTURE_ID,raw.structureId,a?.id,a?.assetId,a?.globalId];
+      for(const v of vals){const m=String(v||'').match(/(?:^|\b)T?0*(\d{1,8})(?:\b|$)/i); if(m){const x=Number(m[1]); if(Number.isFinite(x))return x;}}
+      const lat=n(a?.lat),lon=n(a?.lon); return lat!==null&&lon!==null?((lat+90)*100000+(lon+180)):Infinity;
+    };
+    const greedyChains=arr=>{
+      const unused=arr.slice(); const chains=[];
+      while(unused.length){
+        let cur=unused.shift(); const chain=[cur];
+        while(unused.length){
+          let bi=-1,bd=Infinity;
+          for(let i=0;i<unused.length;i++){const d=distKm(cur,unused[i]); if(d<bd){bd=d;bi=i;}}
+          if(bi<0||bd>4.2)break;
+          cur=unused.splice(bi,1)[0]; chain.push(cur);
+          if(chain.length>900)break;
+        }
+        chains.push(chain);
+      }
+      return chains.sort((a,b)=>b.length-a.length);
+    };
+    for(const group of groups.values()){
+      let arr=group.slice().sort((a,b)=>(SE.sortByStructure?.(a,b)||rawOrder(a)-rawOrder(b)));
+      const unique=[]; const uSeen=new Set();
+      for(const a of arr){const k=ident(a); if(uSeen.has(k))continue; uSeen.add(k); unique.push(a);} arr=unique;
+      const total=arr.length; if(!total)continue;
+      const realParts=arr.map(actualPolePart).filter(p=>p&&Number(p.num)>0);
+      const hasRealNumbering=realParts.length>=Math.min(5,Math.ceil(total*0.1));
+      if(hasRealNumbering){
+        add(arr[0],labelFor(arr[0]));
+        for(let i=1;i<total-1;i++){const a=arr[i]; if(a?.kind==='substation'||a?.kind==='depot'){add(a);continue;} const num=numFor(a); if(Number.isFinite(num)&&num>0&&every>0&&num%every===0)add(a,labelFor(a)||String(num));}
+        if(total>1)add(arr[total-1],labelFor(arr[total-1]));
+        continue;
+      }
+      // Redacted/public-secure line: all labels are 0. Use position/sequence labels so every spur/leg gets indicators.
+      const interval=Math.max(10,Number(every)||20);
+      const chains=greedyChains(arr).slice(0,10);
+      for(const chain of chains){
+        if(!chain.length)continue;
+        const cTotal=chain.length;
+        add(chain[0],String(Math.max(1,arr.indexOf(chain[0])+1)));
+        for(let i=interval-1;i<cTotal-1;i+=interval)add(chain[i],String(Math.max(1,arr.indexOf(chain[i])+1)));
+        if(cTotal>1)add(chain[cTotal-1],String(Math.max(1,arr.indexOf(chain[cTotal-1])+1)));
+      }
+      // Grid safety: one labelled dot per approx 2 km cell, so short spur legs do not vanish between sequence samples.
+      const tileSeen=new Set();
+      for(const a of out){const lat=n(a?.lat),lon=n(a?.lon); if(lat!==null&&lon!==null)tileSeen.add(`${Math.round(lat/0.020)}|${Math.round(lon/0.020)}`);}
+      let gridAdded=0, maxGrid=Math.max(50,Math.min(180,Math.ceil(total/18)));
+      for(let i=0;i<total&&gridAdded<maxGrid;i+=Math.max(2,Math.floor(interval/3))){
+        const a=arr[i]; const lat=n(a?.lat),lon=n(a?.lon); if(lat===null||lon===null)continue;
+        const tile=`${Math.round(lat/0.020)}|${Math.round(lon/0.020)}`;
+        if(tileSeen.has(tile))continue;
+        if(add(a,String(i+1))){tileSeen.add(tile); gridAdded++;}
+      }
+    }
+    return out;
+  };
+})();
+
+/* myMap v3.1.118: shared-structure dots + close-zoom pole indicators restored. */
+(function(){
+  const ME=window.MapEngine, SE=window.SearchEngine;
+  if(!ME||!SE)return;
+  const n=v=>{const x=Number(v);return Number.isFinite(x)?x:null;};
+  const compact=v=>SE.compact?.(v)||String(v||'').toUpperCase().replace(/[^A-Z0-9]+/g,'');
+  const currentKeys=function(){
+    const raw=[];
+    if(this.currentCircuit)raw.push(this.currentCircuit);
+    if(Array.isArray(this.currentCircuits))raw.push(...this.currentCircuits);
+    const keys=[];
+    for(const v of raw){const f=SE.formatCircuitName?.(v)||v; const k=compact(f); if(k&&!keys.includes(k))keys.push(k);}
+    return keys;
+  };
+  ME.selectedRefForMapDot=function(a){
+    const refs=SE.lineRefsForAsset?.(a,true)||[];
+    if(!refs.length)return null;
+    const keys=currentKeys.call(this);
+    if(keys.length){
+      const hit=refs.find(r=>keys.includes(compact(SE.formatCircuitName?.(r.line)||r.line)));
+      if(hit)return hit;
+    }
+    return refs[0];
+  };
+  ME.lineKeyForAsset=function(a){
+    try{const ref=this.selectedRefForMapDot?.(a)||{}; return compact(ref.line||a?.line||'')||String(a?.line||'').toUpperCase();}
+    catch(e){return String(a?.line||'').toUpperCase();}
+  };
+  ME.structureLabelForDot=function(a){
+    try{
+      const ref=this.selectedRefForMapDot?.(a)||{};
+      const pole=String(ref.pole||a?.poleNumber||a?.structureNumber||a?.nameplate||a?.label||'').trim();
+      const parts=SE.poleIdParts?.(pole);
+      if(parts){
+        if(Number(parts.num)===0){
+          const raw=String(parts.raw||pole||'').toUpperCase();
+          if(/G/.test(raw))return raw.startsWith('G')?'G0000':'0000G';
+          return '';
+        }
+        return parts.norm||String(parts.num);
+      }
+      const m=pole.match(/(G0{3,6}|0{3,6}G|\d{1,6}[A-Z]{0,3}(?:\/[A-Z0-9]{1,8})?)\s*$/i)||pole.match(/(G0{3,6}|0{3,6}G|\d{1,6}[A-Z]{0,3}(?:\/[A-Z0-9]{1,8})?)/i);
+      if(!m)return '';
+      const raw=String(m[1]).toUpperCase();
+      if(/^G0+$/.test(raw))return 'G0000';
+      if(/^0+G$/.test(raw))return '0000G';
+      const label=raw.replace(/^0+(?=\d)/,'');
+      return /^0+$/.test(label)?'':label;
+    }catch(e){return '';}
+  };
+  ME.structureNumberForDot=function(a){
+    try{
+      const ref=this.selectedRefForMapDot?.(a)||{};
+      const pole=ref.pole||a?.poleNumber||a?.structureNumber||a?.nameplate||a?.label||'';
+      const p=SE.poleIdParts?.(pole);
+      if(p&&Number.isFinite(Number(p.num)))return Number(p.num)>0?Number(p.num):NaN;
+      const m=String(pole||'').match(/(\d{1,6})/); const num=m?Number(m[1]):NaN;
+      return Number.isFinite(num)&&num>0?num:NaN;
+    }catch(e){return NaN;}
+  };
+  ME.mapDotIdentity=function(a){
+    try{
+      const ref=this.selectedRefForMapDot?.(a)||{};
+      const line=compact(ref.line||a?.line||'');
+      const pole=String(ref.pole||a?.poleNumber||'').trim();
+      const parts=SE.poleIdParts?.(pole);
+      const stripped=SE.stripZeros?.(pole)||'';
+      const raw=a?.raw||{};
+      const sid=String(a?.rawStructure||raw.structure_id||raw.STRUCTURE_ID||a?.structureId||a?.id||'').trim();
+      const lat=n(a?.lat), lon=n(a?.lon);
+      const zeroPole=!!parts&&Number(parts.num)===0&&!parts.isBranch;
+      // Shared structures need line+pole identity for the selected circuit, but public-secure 0000/G0000
+      // records must keep their structure/GPS identity so separate terminal/shared points do not collapse.
+      if(line&&pole&&!zeroPole&&stripped&&stripped!=='0')return `${line}|P${SE.poleKey?.(pole)||stripped}`;
+      if(line&&sid)return `${line}|SID${compact(sid)}|${lat!==null?lat.toFixed(7):''}|${lon!==null?lon.toFixed(7):''}`;
+      if(line&&lat!==null&&lon!==null)return `${line}|GPS${lat.toFixed(7)},${lon.toFixed(7)}`;
+    }catch(e){}
+    return String(a?.id||a?.label||a?.gisLabel||`${a?.lat||''},${a?.lon||''}`);
+  };
+  ME.circuitDotModeForZoom=function(){
+    const z=Number(this.map?.getZoom?.()||0);
+    // Only reduce dots when genuinely zoomed out. At local patrol/search zooms, show the actual dots.
+    return z && z<12 ? 'sample20' : 'full';
+  };
+  const oldFiltered=ME.filteredAssetsForZoom;
+  ME.filteredAssetsForZoom=function(list=[],label=''){
+    if(!this.isCircuitLabel?.(label)){this.circuitDensityMode='';return list||[];}
+    this.lastFullCircuitAssets=(list||[]).slice();
+    this.lastFullCircuitLabel=label;
+    const mode=this.circuitDotModeForZoom();
+    this.circuitDensityMode=mode;
+    if(mode==='sample20')return this.sampleCircuitDots(list,20);
+    // Full close-zoom mode: keep every dot, but tag every 20th structure so pole indicators remain visible.
+    const groups=new Map();
+    for(const a of list||[]){const k=this.lineKeyForAsset?.(a)||'line'; if(!groups.has(k))groups.set(k,[]); groups.get(k).push(a);}
+    const labelSet=new Set();
+    for(const group of groups.values()){
+      let arr=group.slice().sort((a,b)=>(SE.sortByStructure?.(a,b)||0));
+      const unique=[]; const seen=new Set();
+      for(const a of arr){const id=this.mapDotIdentity?.(a)||`${a?.lat},${a?.lon}`; if(seen.has(id))continue; seen.add(id); unique.push(a);} arr=unique;
+      if(!arr.length)continue;
+      const nums=arr.map(a=>this.structureNumberForDot?.(a)).filter(x=>Number.isFinite(x)&&x>0);
+      const hasReal=nums.length>=Math.min(5,Math.ceil(arr.length*0.08));
+      const mark=a=>{const id=this.mapDotIdentity?.(a)||`${a?.lat},${a?.lon}`; if(id)labelSet.add(id);};
+      mark(arr[0]);
+      if(hasReal){
+        for(const a of arr){const num=this.structureNumberForDot?.(a); if(Number.isFinite(num)&&num>0&&num%20===0)mark(a);}
+      }else{
+        for(let i=19;i<arr.length-1;i+=20)mark(arr[i]);
+      }
+      if(arr.length>1)mark(arr[arr.length-1]);
+    }
+    return (list||[]).map(a=>{
+      const id=this.mapDotIdentity?.(a)||`${a?.lat},${a?.lon}`;
+      if(!labelSet.has(id))return a;
+      const lab=this.structureLabelForDot?.(a)||'';
+      const fallback='';
+      return Object.assign({},a,{_sampleMarkerNum:lab||fallback});
+    });
+  };
+  const oldMarkerMode=ME.markerModeFor;
+  ME.markerModeFor=function(label,list){
+    const text=String(label||'');
+    // DOM mode is needed for the numbered indicator bubbles. Keep it for normal-length circuits.
+    if((/^circuit\s+/i.test(text)||/^multi-circuit$/i.test(text))&&Array.isArray(list)&&list.some(a=>a&&a._sampleMarkerNum)&&list.length<=1200)return 'dom-dot';
+    return oldMarkerMode?oldMarkerMode.call(this,label,list):'dom-dot';
   };
 })();
