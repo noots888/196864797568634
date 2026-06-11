@@ -717,3 +717,12 @@ html,body,#map{height:100dvh;min-height:100%;}
 .leaflet-container.map-heading-up .asset-dot-num{transform:translateX(-50%) rotate(var(--map-counter-rotation,0deg))!important;transform-origin:center center!important;}
 .leaflet-container.map-heading-up .hvtx-crossing-icon{transform:rotate(var(--map-counter-rotation,0deg))!important;transform-origin:center center!important;backface-visibility:hidden;}
 .leaflet-container.map-heading-up .leaflet-marker-icon{will-change:transform;}
+
+/* myMap v3.1.128 PWA install button */
+.install-app-btn{
+  font-weight:800;
+}
+.install-app-btn.installed,
+.install-app-btn:disabled{
+  opacity:.7;
+}
