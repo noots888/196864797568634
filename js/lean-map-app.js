@@ -56,7 +56,7 @@ var LeanMapApp={
     try{
       if(!('serviceWorker' in navigator))return;
       if(!(location.protocol==='https:' || location.hostname==='localhost' || location.hostname==='127.0.0.1'))return;
-      await navigator.serviceWorker.register('./service-worker.js?v=mymap-v3-1-127_manifest_install_fix',{scope:'./'});
+      const reg=await navigator.serviceWorker.register('./service-worker.js',{scope:'./'}); try{await reg.update?.();}catch(e){}
     }catch(e){}
   },
   updateReferenceToggleButtons(){
@@ -102,6 +102,7 @@ var LeanMapApp={
     document.getElementById('fileInput')?.addEventListener('change',e=>UI.handleFiles(e.target.files));
     document.getElementById('conductorJsonInput')?.addEventListener('change',e=>this.importConductorJson(e.target.files?.[0]));
     document.getElementById('importBtn')?.addEventListener('click',()=>{this.closePlusMenu();document.getElementById('fileInput')?.click();});
+    document.getElementById('installAppBtn')?.addEventListener('click',()=>{this.closePlusMenu();window.MyMapPwaInstall?.install?.();});
     document.getElementById('clearMapDisplayBtn')?.addEventListener('click',()=>{this.closePlusMenu();MapEngine.clearDisplay();UI.refreshCounts();this.updateReferenceToggleButtons();});
     document.getElementById('showAllSubstationsBtn')?.addEventListener('click',()=>this.toggleReferencePoints('substation'));
     document.getElementById('showAllDepotsBtn')?.addEventListener('click',()=>this.toggleReferencePoints('depot'));
