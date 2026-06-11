@@ -4,16 +4,17 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#1f3b25">
+  <meta name="application-name" content="myMap">
   <title>myMap</title>
-  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="manifest" href="manifest.json?v=mymap-v3-1-129_pwa_real_install_fix">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="myMap">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <link rel="icon" type="image/png" href="icons/favicon.png?v=mymap-v3-1-128_pwa_download_fix">
-  <link rel="apple-touch-icon" href="icons/icon-192.png?v=mymap-v3-1-128_pwa_download_fix">
+  <link rel="icon" type="image/png" href="icons/favicon.png?v=mymap-v3-1-129_pwa_real_install_fix">
+  <link rel="apple-touch-icon" href="icons/icon-192.png?v=mymap-v3-1-129_pwa_real_install_fix">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-  <link rel="stylesheet" href="css/lean-engine.css?v=mymap-v3-1-128_pwa_download_fix">
+  <link rel="stylesheet" href="css/lean-engine.css?v=mymap-v3-1-129_pwa_real_install_fix">
 </head>
 <body>
   <div id="map"></div>
@@ -73,7 +74,7 @@
     <button id="conductorBtn" type="button">Conductors</button>
     <button id="statusBtn" type="button">Data manager</button>
     <button id="importBtn" type="button">Import files</button>
-    <button id="installAppBtn" class="install-app-btn" type="button">Download app</button>
+    <button id="installAppBtn" class="install-app-btn" type="button">Install app</button>
     <button id="resetBtn" class="main-reset-btn" type="button">Reset</button>
   </div>
 
@@ -181,71 +182,82 @@
   </section>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="js/lean-app-core.js?v=mymap-v3-1-128_pwa_download_fix"></script>
-  <script src="js/diagnostics.js?v=mymap-v3-1-128_pwa_download_fix"></script>
-  <script src="js/lean-engine-stubs.js?v=mymap-v3-1-128_pwa_download_fix"></script>
-  <script src="js/storage-engine.js?v=mymap-v3-1-128_pwa_download_fix"></script>
-  <script src="js/import-engine.js?v=mymap-v3-1-128_pwa_download_fix"></script>
-  <script src="js/conductor-data-loader.js?v=mymap-v3-1-128_pwa_download_fix"></script>
-  <script src="js/search-engine.js?v=mymap-v3-1-128_pwa_download_fix"></script>
-  <script src="js/span-weight-calculator.js?v=mymap-v3-1-128_pwa_download_fix"></script>
-  <script src="js/popup-engine.js?v=mymap-v3-1-128_pwa_download_fix"></script>
-  <script src="js/map-engine.js?v=mymap-v3-1-128_pwa_download_fix"></script>
-  <script src="js/hv-crossings-layer.js?v=mymap-v3-1-128_pwa_download_fix"></script>
-  <script src="js/lean-map-app.js?v=mymap-v3-1-128_pwa_download_fix"></script>
+  <script src="js/lean-app-core.js?v=mymap-v3-1-129_pwa_real_install_fix"></script>
+  <script src="js/diagnostics.js?v=mymap-v3-1-129_pwa_real_install_fix"></script>
+  <script src="js/lean-engine-stubs.js?v=mymap-v3-1-129_pwa_real_install_fix"></script>
+  <script src="js/storage-engine.js?v=mymap-v3-1-129_pwa_real_install_fix"></script>
+  <script src="js/import-engine.js?v=mymap-v3-1-129_pwa_real_install_fix"></script>
+  <script src="js/conductor-data-loader.js?v=mymap-v3-1-129_pwa_real_install_fix"></script>
+  <script src="js/search-engine.js?v=mymap-v3-1-129_pwa_real_install_fix"></script>
+  <script src="js/span-weight-calculator.js?v=mymap-v3-1-129_pwa_real_install_fix"></script>
+  <script src="js/popup-engine.js?v=mymap-v3-1-129_pwa_real_install_fix"></script>
+  <script src="js/map-engine.js?v=mymap-v3-1-129_pwa_real_install_fix"></script>
+  <script src="js/hv-crossings-layer.js?v=mymap-v3-1-129_pwa_real_install_fix"></script>
+  <script src="js/lean-map-app.js?v=mymap-v3-1-129_pwa_real_install_fix"></script>
 
   <script>
-  // myMap PWA install hook · mymap-v3-1-128_pwa_download_fix
+  // myMap PWA install hook · mymap-v3-1-129_pwa_real_install_fix
   (function(){
     var deferredInstallPrompt=null;
     var installed=(window.matchMedia&&window.matchMedia('(display-mode: standalone)').matches)||window.navigator.standalone===true;
+    var swReady=false;
+    function toast(msg){try{window.UI&&window.UI.toast?window.UI.toast(msg):alert(msg);}catch(e){alert(msg);}}
     function syncInstallButton(){
       var btn=document.getElementById('installAppBtn');
       if(!btn)return;
       if(installed){btn.textContent='App installed';btn.disabled=true;btn.classList.add('installed');return;}
       btn.disabled=false;
-      btn.textContent=deferredInstallPrompt?'Download app':'Download app';
+      btn.classList.remove('installed');
+      btn.textContent=deferredInstallPrompt?'Install app':'Install app';
+      btn.title=deferredInstallPrompt?'Install myMap as an app':'Reload once if install does not appear';
+    }
+    async function registerSw(){
+      if(!('serviceWorker' in navigator))return false;
+      if(!(location.protocol==='https:' || location.hostname==='localhost' || location.hostname==='127.0.0.1'))return false;
+      try{
+        var reg=await navigator.serviceWorker.register('./service-worker.js?v=mymap-v3-1-129_pwa_real_install_fix',{scope:'./'});
+        try{await reg.update();}catch(e){}
+        try{await navigator.serviceWorker.ready;}catch(e){}
+        swReady=true;
+        syncInstallButton();
+        return true;
+      }catch(e){syncInstallButton();return false;}
     }
     window.MyMapPwaInstall={
       get promptReady(){return !!deferredInstallPrompt;},
       async install(){
         syncInstallButton();
-        if(installed){window.UI?.toast?.('myMap is already installed.');return;}
+        if(installed){toast('myMap is already installed.');return;}
+        await registerSw();
         if(deferredInstallPrompt){
           var promptEvent=deferredInstallPrompt;
           deferredInstallPrompt=null;
           try{
             await promptEvent.prompt();
-            await promptEvent.userChoice;
+            var choice=await promptEvent.userChoice;
             syncInstallButton();
+            if(choice&&choice.outcome==='dismissed')toast('Install cancelled.');
             return;
           }catch(e){syncInstallButton();}
         }
-        window.UI?.toast?.('Use Chrome menu ⋮ then Add to Home screen / Install app.');
+        toast('Install prompt is not ready yet. Close this, reload once, wait 10 seconds, then tap Install app again. Do not use Add to Home screen if it only creates a shortcut.');
       },
-      sync:syncInstallButton
+      sync:syncInstallButton,
+      register:registerSw
     };
     window.addEventListener('beforeinstallprompt',function(e){
       e.preventDefault();
       deferredInstallPrompt=e;
       syncInstallButton();
-      window.UI?.toast?.('Download app is ready in the menu.');
+      toast('Install app is ready in the menu.');
     });
     window.addEventListener('appinstalled',function(){
       installed=true;
       deferredInstallPrompt=null;
       syncInstallButton();
-      window.UI?.toast?.('myMap installed.');
+      toast('myMap installed.');
     });
-    window.addEventListener('load',function(){
-      syncInstallButton();
-      if(!('serviceWorker' in navigator))return;
-      if(!(location.protocol==='https:' || location.hostname==='localhost' || location.hostname==='127.0.0.1'))return;
-      navigator.serviceWorker.register('./service-worker.js',{scope:'./'}).then(function(reg){
-        if(reg&&reg.update)reg.update().catch(function(){});
-        syncInstallButton();
-      }).catch(function(){syncInstallButton();});
-    });
+    window.addEventListener('load',function(){registerSw();syncInstallButton();});
   })();
   </script>
 </body>
