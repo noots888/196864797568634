@@ -40,6 +40,15 @@ function utilityTypeFromText(text=''){
 function utilityTypeFromFileName(fileName=''){
   return utilityTypeFromText(fileName);
 }
+
+function isAssetContextFileWorker(fileName='',props={}){
+  const f=String(fileName||'').toUpperCase();
+  const rawText=Object.entries(props||{}).map(([k,v])=>`${k} ${v}`).join(' ').toUpperCase();
+  if(/TRANSMISSION[_\s-]*POLE|TRMSN[_\s-]*POLE|TOWER|STRUCTURE/.test(f)||/ASSET_TYPE\s+TRANSMISSION[-_\s]*POLE|TRMSN_LINE_GIS_LABEL|NAMEPLATE_ID_1/.test(rawText))return true;
+  if(/TRANSFORMER|ELECTRICAL[_\s-]*TRANSFORMERS?|WP[_\s-]*039/.test(f)||/ASSET_TYPE\s+TRANSFORMER|EQUIP_NAME|PICK_ID/.test(rawText)&&/TRANSFORMER/.test(rawText))return true;
+  if(/ELECTRICAL[_\s-]*ENCLOSURES?|ENCLOSURES?|ENCLOSURE|WP[_\s-]*040|DISTBOX|DIST[_\s-]*BOX|ENCASSET/.test(f)||/ASSET_TYPE\s+ELECTRICAL[-_\s]*ENCLOSURE/.test(rawText))return true;
+  return false;
+}
 function truthyWorker(v){return v===true||v===1||/^(true|yes|y|1)$/i.test(String(v||'').trim());}
 function precomputedUtilityTypesFromProps(props={}){
   const out=new Set();
@@ -83,6 +92,7 @@ function utilityFieldValue(props,type,kind){
 }
 function utilityTypeFromFeature(feature,fileName=''){
   const props={...(feature?.properties||{}),...(feature?.attributes||{})};
+  if(isAssetContextFileWorker(fileName,props))return '';
   const pre=precomputedUtilityTypesFromProps(props);
   if(pre.length===1)return pre[0];
   if(pre.length>1)return ''; // multi-type pre-marked files are expanded by fallbackFeatureToUtilityAssets
