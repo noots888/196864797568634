@@ -527,7 +527,7 @@
       ${warn?`<div class="fmSWWarn">${warn}</div>`:""}
       <div class="fmSWGrid">${spanCard(result.left,modeId)}${spanCard(result.right,modeId)}</div>
       <details class="fmSWMore"><summary>More info / assumptions</summary><div class="fmSWNote">Use the selector to choose exactly what is unclipped: one phase conductor, twin phase conductors, one earth/OPGW, or all conductors. Twin phase conductor means two phase sub-conductors from the same phase bundle. Structure type is auto-detected from imported wording but can be manually overridden; it changes warnings/assumptions only, not the calculated dead weight. This is a quick field weight estimate only. It uses GPS distance to adjacent loaded structures where available; otherwise it uses conductor section length. It does not include live-line engineering, actual tension, sag, wind, shock loading, hardware condition, pulley friction, rope angle, plant WLL/SWL, or an approved lift plan. Unknown/unverified conductor weights are excluded and flagged.</div>${structureRoleHtml(result.asset.asset||asset,false,roleOverride)}<div class="fmSWKV"><b>Loaded structures</b><span>${result.lineAssetCount.toLocaleString()}</span></div><div class="fmSWKV"><b>All spans full</b><span>${totalLabel(result.knownTotalKg,allUnknown)} full conductor mass over previous + next spans</span></div></details></div>`;
-    div.addEventListener("click",e=>{if(e.target===div)close();}); document.body.appendChild(div);
+    div.addEventListener("click",e=>{try{e.stopPropagation();}catch(_){}}); document.body.appendChild(div);
   }
   function close(){const el=document.getElementById("fieldMapSpanWeightOverlay"); if(el)el.remove();}
   function registerAsset(asset){const now=Date.now(); for(const [k,v] of ASSET_CACHE){if(now-v.t>ASSET_TTL_MS)ASSET_CACHE.delete(k);} const id="sw"+now.toString(36)+Math.random().toString(36).slice(2,8); ASSET_CACHE.set(id,{t:now,asset}); return id;}
@@ -545,28 +545,28 @@
     try{
       if(!shouldOffer(asset))return '';
       const id=registerAsset(asset);
-      return `<button class="fmSWInlineBtn fmCalcBtn fmConductorWeightBtn" type="button" onclick="event.stopPropagation();FieldMapSpanWeightCalculator.openForAssetId('${id}')">Lift / span weight</button>`;
+      return `<button class="fmSWInlineBtn fmCalcBtn fmConductorWeightBtn" type="button" onclick="event.preventDefault();event.stopPropagation();FieldMapSpanWeightCalculator.openForAssetId('${id}');return false;">Lift / span weight</button>`;
     }catch(e){return '';}
   }
   function roughPullButtonHtmlForAsset(asset){
     try{
       if(!shouldOffer(asset))return '';
       const id=registerAsset(asset);
-      return `<button class="fmSWInlineBtn fmCalcBtn fmPullLoadBtn" type="button" onclick="event.stopPropagation();FieldMapSpanWeightCalculator.openPullForAssetId('${id}')">Pull / unload</button>`;
+      return `<button class="fmSWInlineBtn fmCalcBtn fmPullLoadBtn" type="button" onclick="event.preventDefault();event.stopPropagation();FieldMapSpanWeightCalculator.openPullForAssetId('${id}');return false;">Pull / unload</button>`;
     }catch(e){return '';}
   }
   function anglePullButtonHtmlForAsset(asset){
     try{
       if(!shouldOffer(asset))return '';
       const id=registerAsset(asset);
-      return `<button class="fmSWInlineBtn fmCalcBtn fmAnglePullBtn" type="button" onclick="event.stopPropagation();FieldMapSpanWeightCalculator.openAnglePullForAssetId('${id}')">Angle pull-back</button>`;
+      return `<button class="fmSWInlineBtn fmCalcBtn fmAnglePullBtn" type="button" onclick="event.preventDefault();event.stopPropagation();FieldMapSpanWeightCalculator.openAnglePullForAssetId('${id}');return false;">Angle pull-back</button>`;
     }catch(e){return '';}
   }
   function calculatorMenuHtmlForAsset(asset){
     try{
       if(!shouldOffer(asset))return '';
       const id=registerAsset(asset);
-      return `<details class="fmCalcMenu" onclick="event.stopPropagation();" ontoggle="setTimeout(()=>window.MapEngine?.refitOpenPopup?.(),60);setTimeout(()=>window.MapEngine?.refitOpenPopup?.(),220);"><summary>Conductor calculators</summary><div class="fmCalcMenuBody"><button class="fmSWInlineBtn fmCalcBtn fmConductorWeightBtn" type="button" onclick="event.stopPropagation();FieldMapSpanWeightCalculator.openForAssetId('${id}')">Lift / span weight</button><button class="fmSWInlineBtn fmCalcBtn fmPullLoadBtn" type="button" onclick="event.stopPropagation();FieldMapSpanWeightCalculator.openPullForAssetId('${id}')">Pull / unload</button><button class="fmSWInlineBtn fmCalcBtn fmAnglePullBtn" type="button" onclick="event.stopPropagation();FieldMapSpanWeightCalculator.openAnglePullForAssetId('${id}')">Angle pull-back</button></div></details>`;
+      return `<details class="fmCalcMenu" onclick="event.stopPropagation();" ontoggle="setTimeout(()=>window.MapEngine?.refitOpenPopup?.(),60);setTimeout(()=>window.MapEngine?.refitOpenPopup?.(),220);"><summary>Conductor calculators</summary><div class="fmCalcMenuBody"><button class="fmSWInlineBtn fmCalcBtn fmConductorWeightBtn" type="button" onclick="event.preventDefault();event.stopPropagation();FieldMapSpanWeightCalculator.openForAssetId('${id}');return false;">Lift / span weight</button><button class="fmSWInlineBtn fmCalcBtn fmPullLoadBtn" type="button" onclick="event.preventDefault();event.stopPropagation();FieldMapSpanWeightCalculator.openPullForAssetId('${id}');return false;">Pull / unload</button><button class="fmSWInlineBtn fmCalcBtn fmAnglePullBtn" type="button" onclick="event.preventDefault();event.stopPropagation();FieldMapSpanWeightCalculator.openAnglePullForAssetId('${id}');return false;">Angle pull-back</button></div></details>`;
     }catch(e){return '';}
   }
   const PULL_SETUP_KEY="fieldMap.pullSetup.v1";
@@ -716,7 +716,7 @@
       ${warn?`<div class="fmSWWarn">${warn}</div>`:""}
       <details class="fmSWMore"><summary>More conductor-pull guide</summary><div class="fmPullGrid">${rowHtml}</div></details>
       <details class="fmSWMore"><summary>More info / assumptions</summary><div class="fmSWNote">Use Start conductor moving only for a small rolling/sliding movement once the conductor is already supported. To unhook a disc insulator string or lift conductor off hardware, use Unload disc string / lift off hardware because that uses the actual selected support load at the structure. The unclipped selector can now use one phase conductor, twin phase conductors, one earth/OPGW, or all conductors. Twin phase conductor means two phase sub-conductors from the same phase bundle. The insulator/hardware allowance is a rough extra dead-load allowance only: 66kV / 71-72 defaults to 75 kg, 132kV / 81-82 defaults to 125 kg for a disc string, 132kV / 81-82 poly long rod is a separate lighter 50 kg option, 220kV / X1-X2 defaults to 150 kg, and 330kV / 91-92 20-disc string defaults to 250 kg. Structure type can be auto-detected or manually overridden; this changes warnings/assumptions only, not the calculated dead weight. A 2:1 setup reduces cranker effort, but it does not reduce the load on the conductor, hardware, anchor slings, blocks or tower/pole attachment points. This is not conductor tension and not a certified lift or rigging calculation. Actual load changes with structure type, rope angle, sheave friction, binding, wind, sag and site setup. Termination/strain/angle structures can involve conductor tension and side load that this simple dead-load calculator does not model. Use equipment WLL/SWL and approved work method.</div></details></div>`;
-    div.addEventListener("click",e=>{if(e.target===div)closePull();}); document.body.appendChild(div);
+    div.addEventListener("click",e=>{try{e.stopPropagation();}catch(_){}}); document.body.appendChild(div);
   }
   const ANGLE_OFFSET_KEY="fieldMap.anglePull.offsetM.v1";
   const ANGLE_TENSION_KEY="fieldMap.anglePull.tensionKg.v1"; // retained for manual override only
@@ -942,7 +942,7 @@
       ${warn?`<div class="fmSWWarn">${warn}</div>`:""}
       <div class="fmAngleWarning">Angle-pole pull-back is dominated by actual conductor tension, rope angle, binding, rollers and hardware geometry. Distance out alone is not enough: a tight conductor moved 1 m can require more effort than a loose conductor moved 15 m. This is still not a certified rigging or plant load calculation.</div>
       <details class="fmSWMore"><summary>More info / assumptions</summary><div class="fmSWNote">Auto mode estimates line tension from the selected conductor weight and adjacent span lengths using rough sag bands: low ≈ 5% sag, normal ≈ 3.5% sag, high ≈ 2.5% sag. The conductor condition/tension selector then adjusts that auto estimate for loose, normal, tight, or very tight/restrained conductor. Formula used for each side: estimated tension ≈ selected span weight ÷ (8 × sag ratio), adjusted by conductor condition, then offset pull ≈ tension × sin(atan(offset / span length)). The app also calculates an angle-pole side-load floor from adjacent GPS line direction where possible, or from the selected manual included line angle: 180° straight/tangent, 130° angle pole, 90° hard angle. For equal tension on both sides, 180° adds almost no angle side-load, while 90° is a high resultant side-load. The clean side-pull uses whichever is higher: offset pull or angle side-load. If Side pull + unload/lift is selected, the app adds the selected conductor support load plus the chosen insulator/hardware allowance. The selected friction/bind condition then multiplies that clean minimum to allow for rollers, binding and poor field geometry. Crane and direct cranker are 1:1; two fixed rollers are still 1:1 and only redirect the pull; the 2:1 tower termination setup assumes a moving roller/block on the conductor and rope returned/terminated back to the pole. This gives a field guide from map data only; it does not know actual sag, stringing tension, temperature, ruling span, wind, binding or roller friction. Check slings, blocks, pole/tower attachment points and approved work method.</div><div class="fmAngleFormula">Formula: ${esc(tensionSummary)} · offset pull = ${fmtKg(m.offsetSidePull)} · angle side-load = ${fmtKg(m.angleSidePull)} · clean side pull used = ${fmtKg(m.sidePull)}. Clean total before cranker advantage = ${fmtKg(m.cleanRequired)}. Field guide before cranker advantage = ${fmtKg(m.required)} after ×${condition.factor} ${esc(condition.label)} allowance.</div></details></div>`;
-    div.addEventListener("click",e=>{if(e.target===div)closeAnglePull();}); document.body.appendChild(div);
+    div.addEventListener("click",e=>{try{e.stopPropagation();}catch(_){}}); document.body.appendChild(div);
   }
   function openAnglePullForCurrent(){if(CURRENT_ANGLE_PULL_ASSET)openAnglePull(CURRENT_ANGLE_PULL_ASSET,CURRENT_ANGLE_PULL_LINE||'');}
   function closeAnglePull(){const el=document.getElementById("fieldMapAnglePullOverlay"); if(el)el.remove();}
@@ -954,4 +954,345 @@
   function clearConductorSections(){localStorage.removeItem(STORAGE_KEY); invalidateCalculatorCaches(); alert("Cleared locally imported conductor span sections. Bundled sections remain available.");}
   window.FieldMapSpanWeightCalculator={open,close,openPull,closePull,openAnglePull,closeAnglePull,updatePullSetup,updateAngleSetup,updatePullTask,updateInsulatorAllowance,updateWeightLoadMode,updatePullLoadMode,updateAngleLoadMode,updateAngleInput,updateStructureRoleOverride,calculate,auditAsset,specAudit,loadSections,getSpec,importConductorFile,chooseConductorFile,clearConductorSections,openForAssetId,openPullForAssetId,openAnglePullForAssetId,openAnglePullForCurrent,invalidateCalculatorCaches,buttonHtmlForAsset,roughPullButtonHtmlForAsset,anglePullButtonHtmlForAsset,calculatorMenuHtmlForAsset,registerAsset,shouldOffer,setSpecs,fmtM,fmtKg,get specs(){return refreshSpecLookup();}};
   let timer=setInterval(()=>{if(patchPopupEngine())clearInterval(timer);},250); document.addEventListener("DOMContentLoaded",patchPopupEngine);
+})();
+
+
+/* myMap v3.1.201: conductor calculators opened from asset More info stay open. */
+(function(){
+  if(window.__myMapV201CalcClickGuard)return; window.__myMapV201CalcClickGuard=true;
+  const stop=(ev)=>{
+    const t=ev&&ev.target;
+    if(!t||!t.closest)return;
+    // Do not catch calculator buttons during document capture; it prevents their own onclick from firing.
+    if(t.closest('.fmCalcBtn'))return;
+    if(t.closest('.fmSWOverlay,.fmPullPanel,#fieldMapSpanWeightOverlay,#fieldMapPullLoadOverlay,#fieldMapAnglePullOverlay')){
+      try{ev.stopPropagation(); if(window.L&&L.DomEvent)L.DomEvent.stopPropagation(ev);}catch(_){ }
+    }
+  };
+  document.addEventListener('click',stop,true);
+  document.addEventListener('pointerup',stop,true);
+  document.addEventListener('touchend',stop,true);
+})();
+
+/* myMap v3.1.212: replace the More info calculator <details> menu with direct buttons so it cannot open/close instantly. */
+(function(){
+  const calc=window.FieldMapSpanWeightCalculator;
+  if(!calc||calc.__v212FlatPopupCalcMenu)return; calc.__v212FlatPopupCalcMenu=true;
+  function stop(ev){
+    try{ev?.preventDefault?.();ev?.stopPropagation?.();ev?.stopImmediatePropagation?.(); if(window.L?.DomEvent&&ev)L.DomEvent.stop(ev);}catch(_){ }
+  }
+  window.myMapOpenPopupCalculatorV212=function(id,mode,ev){
+    stop(ev);
+    window.__myMapCalcOpeningUntil=Date.now()+1200;
+    setTimeout(()=>{
+      try{
+        if(mode==='pull')calc.openPullForAssetId(id);
+        else if(mode==='angle')calc.openAnglePullForAssetId(id);
+        else calc.openForAssetId(id);
+      }catch(e){try{alert('Calculator failed to open: '+(e?.message||e));}catch(_){ }}
+    },40);
+    return false;
+  };
+  calc.calculatorMenuHtmlForAsset=function(asset){
+    try{
+      if(calc.shouldOffer&&!calc.shouldOffer(asset))return '';
+      const id=calc.registerAsset(asset);
+      return `<div class="fmCalcMenuFlat" onclick="event.stopPropagation();" onpointerdown="event.stopPropagation();" ontouchstart="event.stopPropagation();"><b>Conductor calculators</b><div class="fmCalcMenuBody"><button class="fmSWInlineBtn fmCalcBtn fmConductorWeightBtn" type="button" onclick="return window.myMapOpenPopupCalculatorV212('${id}','weight',event);">Lift / span weight</button><button class="fmSWInlineBtn fmCalcBtn fmPullLoadBtn" type="button" onclick="return window.myMapOpenPopupCalculatorV212('${id}','pull',event);">Pull / unload</button><button class="fmSWInlineBtn fmCalcBtn fmAnglePullBtn" type="button" onclick="return window.myMapOpenPopupCalculatorV212('${id}','angle',event);">Angle pull-back</button></div></div>`;
+    }catch(_){return '';}
+  };
+  const guard=(ev)=>{
+    const t=ev&&ev.target;
+    // Let direct calculator buttons receive their onclick. Only stop panel/background/overlay events.
+    if(t?.closest?.('.fmCalcBtn'))return;
+    if(t?.closest?.('.fmCalcMenuFlat,.fmCalcMenuBody,.fmSWOverlay,#fieldMapSpanWeightOverlay,#fieldMapPullLoadOverlay,#fieldMapAnglePullOverlay')){
+      try{ev?.stopPropagation?.(); if(window.L?.DomEvent&&ev)L.DomEvent.stopPropagation(ev);}catch(_){ }
+    }
+  };
+  ['click','pointerdown','pointerup','touchstart','touchend','mousedown','mouseup'].forEach(type=>document.addEventListener(type,guard,true));
+})();
+
+
+/* myMap v3.1.213: calculator buttons must actually receive click events. */
+(function(){
+  if(window.__myMapV213CalcButtonFix)return; window.__myMapV213CalcButtonFix=true;
+  function stop(ev){try{ev?.preventDefault?.();ev?.stopPropagation?.();ev?.stopImmediatePropagation?.(); if(window.L?.DomEvent&&ev)L.DomEvent.stop(ev);}catch(_){ }}
+  document.addEventListener('click',function(ev){
+    const btn=ev.target?.closest?.('.fmCalcBtn'); if(!btn)return;
+    const onclick=String(btn.getAttribute('onclick')||'');
+    const m=onclick.match(/myMapOpenPopupCalculatorV212\('([^']+)'\s*,\s*'([^']+)'/);
+    if(!m)return;
+    stop(ev);
+    try{window.myMapOpenPopupCalculatorV212?.(m[1],m[2],ev);}catch(e){try{alert('Calculator failed to open: '+(e?.message||e));}catch(_){}}
+  },false);
+})();
+
+
+/* myMap v3.1.214: final calculator launch fix.
+   Use data buttons + window-capture pointer/click listener so map/popup close handlers cannot swallow the calculator tap. */
+(function(){
+  const calc=window.FieldMapSpanWeightCalculator;
+  if(!calc||calc.__v214CalculatorLaunchFix)return; calc.__v214CalculatorLaunchFix=true;
+  const esc=(v)=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  calc.calculatorMenuHtmlForAsset=function(asset){
+    try{
+      if(calc.shouldOffer&&!calc.shouldOffer(asset))return '';
+      const id=calc.registerAsset(asset);
+      return `<div class="fmCalcMenuFlat v214-calc" data-calc-root="1"><b>Conductor calculators</b><div class="fmCalcMenuBody"><button class="fmSWInlineBtn fmCalcBtn fmConductorWeightBtn" type="button" data-mymap-calc-id="${esc(id)}" data-mymap-calc-mode="weight">Lift / span weight</button><button class="fmSWInlineBtn fmCalcBtn fmPullLoadBtn" type="button" data-mymap-calc-id="${esc(id)}" data-mymap-calc-mode="pull">Pull / unload</button><button class="fmSWInlineBtn fmCalcBtn fmAnglePullBtn" type="button" data-mymap-calc-id="${esc(id)}" data-mymap-calc-mode="angle">Angle pull-back</button></div></div>`;
+    }catch(_){return '';}
+  };
+  function stop(ev){
+    try{ev?.preventDefault?.();ev?.stopPropagation?.();ev?.stopImmediatePropagation?.(); if(window.L?.DomEvent&&ev)L.DomEvent.stop(ev);}catch(_){ }
+  }
+  function openCalc(id,mode){
+    window.__myMapCalcOpeningUntil=Date.now()+1800;
+    try{
+      const ids=['fieldMapSpanWeightOverlay','fieldMapPullLoadOverlay','fieldMapAnglePullOverlay'];
+      for(const x of ids){const el=document.getElementById(x); if(el)el.remove();}
+      if(mode==='pull')calc.openPullForAssetId(id);
+      else if(mode==='angle')calc.openAnglePullForAssetId(id);
+      else calc.openForAssetId(id);
+      return true;
+    }catch(e){try{alert('Calculator failed to open: '+(e?.message||e));}catch(_){ } return false;}
+  }
+  let lastKey='', lastAt=0;
+  function handler(ev){
+    const btn=ev?.target?.closest?.('[data-mymap-calc-id][data-mymap-calc-mode],.fmCalcBtn');
+    if(!btn)return;
+    let id=btn.getAttribute('data-mymap-calc-id')||'';
+    let mode=btn.getAttribute('data-mymap-calc-mode')||'';
+    if(!id){
+      const onclick=String(btn.getAttribute('onclick')||'');
+      const m=onclick.match(/myMapOpenPopupCalculatorV212\('([^']+)'\s*,\s*'([^']+)'/);
+      if(m){id=m[1]; mode=m[2];}
+    }
+    if(!id)return;
+    stop(ev);
+    const key=id+'|'+mode;
+    const now=Date.now();
+    if(key===lastKey && now-lastAt<450)return false;
+    lastKey=key; lastAt=now;
+    openCalc(id,mode||'weight');
+    return false;
+  }
+  ['pointerdown','touchstart','mousedown','click'].forEach(type=>window.addEventListener(type,handler,true));
+})();
+
+
+/* myMap v3.1.224: calculator close fix.
+   Earlier popup click guards could swallow taps before the calculator close buttons received
+   their inline onclick. Handle close actions at window capture level before those guards. */
+(function(){
+  if(window.__myMapV215CalcCloseFix)return; window.__myMapV215CalcCloseFix=true;
+  function closeOverlay(id){const el=document.getElementById(id); if(el)el.remove();}
+  function closeAll(){
+    closeOverlay('fieldMapSpanWeightOverlay');
+    closeOverlay('fieldMapPullLoadOverlay');
+    closeOverlay('fieldMapAnglePullOverlay');
+    try{window.__myMapCalcOpeningUntil=0;}catch(_){ }
+  }
+  function stop(ev){try{ev.preventDefault?.();ev.stopPropagation?.();ev.stopImmediatePropagation?.(); if(window.L?.DomEvent)L.DomEvent.stop(ev);}catch(_){ }}
+  function handle(ev){
+    const t=ev&&ev.target;
+    if(!t||!t.closest)return;
+    const closeBtn=t.closest('.fmSWClose,[data-mymap-calc-close]');
+    if(closeBtn){stop(ev); closeAll(); return false;}
+    // Tapping the dim background closes the calculator. Taps inside the panel do not.
+    if(t.id==='fieldMapSpanWeightOverlay'||t.id==='fieldMapPullLoadOverlay'||t.id==='fieldMapAnglePullOverlay'){
+      stop(ev); closeAll(); return false;
+    }
+  }
+  ['pointerdown','touchstart','mousedown','click'].forEach(type=>window.addEventListener(type,handle,true));
+  document.addEventListener('keydown',ev=>{if(ev.key==='Escape')closeAll();},true);
+  // Re-expose close functions so any inline buttons use the safe closer.
+  const wait=setInterval(()=>{
+    const c=window.FieldMapSpanWeightCalculator;
+    if(!c)return;
+    c.close=()=>closeOverlay('fieldMapSpanWeightOverlay');
+    c.closePull=()=>closeOverlay('fieldMapPullLoadOverlay');
+    c.closeAnglePull=()=>closeOverlay('fieldMapAnglePullOverlay');
+    c.closeAll=closeAll;
+    clearInterval(wait);
+  },100);
+})();
+
+
+/* myMap v3.1.225: compact calculators.
+   Keep More info unchanged and make calculator access a single collapsed button at the bottom. */
+(function(){
+  const calc=window.FieldMapSpanWeightCalculator;
+  if(!calc||calc.__v225CompactCalculatorMenu)return; calc.__v225CompactCalculatorMenu=true;
+  const esc=(v)=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  calc.calculatorMenuHtmlForAsset=function(asset){
+    try{
+      if(calc.shouldOffer&&!calc.shouldOffer(asset))return '';
+      const id=calc.registerAsset(asset);
+      return `<details class="fmCalcMenu v225-calc" data-calc-root="1" onclick="event.stopPropagation();" onpointerdown="event.stopPropagation();" ontouchstart="event.stopPropagation();" ontoggle="setTimeout(()=>window.MapEngine?.refitOpenPopup?.(),60);setTimeout(()=>window.MapEngine?.refitOpenPopup?.(),220);"><summary>Calculators</summary><div class="fmCalcMenuBody"><button class="fmSWInlineBtn fmCalcBtn fmConductorWeightBtn" type="button" data-mymap-calc-id="${esc(id)}" data-mymap-calc-mode="weight">Lift / span weight</button><button class="fmSWInlineBtn fmCalcBtn fmPullLoadBtn" type="button" data-mymap-calc-id="${esc(id)}" data-mymap-calc-mode="pull">Pull / unload</button><button class="fmSWInlineBtn fmCalcBtn fmAnglePullBtn" type="button" data-mymap-calc-id="${esc(id)}" data-mymap-calc-mode="angle">Angle pull-back</button></div></details>`;
+    }catch(_){return '';}
+  };
+})();
+
+
+/* myMap v3.1.226: robust compact calculator menu.
+   v225 used nested <details>, which can be swallowed by popup/touch handlers on mobile.
+   This uses a plain button + hidden panel and explicit handlers. */
+(function(){
+  const calc=window.FieldMapSpanWeightCalculator;
+  if(!calc||calc.__v226RobustCompactCalculatorMenu)return; calc.__v226RobustCompactCalculatorMenu=true;
+  const esc=(v)=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  function stop(ev){try{ev?.preventDefault?.();ev?.stopPropagation?.();ev?.stopImmediatePropagation?.(); if(window.L?.DomEvent&&ev)L.DomEvent.stop(ev);}catch(_){ }}
+  function openCalc(id,mode,ev){
+    stop(ev);
+    try{window.__myMapCalcOpeningUntil=Date.now()+1800;}catch(_){ }
+    try{
+      ['fieldMapSpanWeightOverlay','fieldMapPullLoadOverlay','fieldMapAnglePullOverlay'].forEach(x=>{const el=document.getElementById(x); if(el)el.remove();});
+      if(mode==='pull')calc.openPullForAssetId(id);
+      else if(mode==='angle')calc.openAnglePullForAssetId(id);
+      else calc.openForAssetId(id);
+      return false;
+    }catch(e){try{alert('Calculator failed to open: '+(e?.message||e));}catch(_){ } return false;}
+  }
+  window.myMapToggleCalcMenuV226=function(btn,ev){
+    stop(ev);
+    const root=btn?.closest?.('.fmCalcCompactV226');
+    if(!root)return false;
+    const body=root.querySelector('.fmCalcCompactBodyV226');
+    const open=!root.classList.contains('open');
+    root.classList.toggle('open',open);
+    btn.setAttribute('aria-expanded',open?'true':'false');
+    if(body)body.hidden=!open;
+    btn.innerHTML=open?'Calculators −':'Calculators +';
+    setTimeout(()=>{try{window.MapEngine?.refitOpenPopup?.();}catch(_){ }},60);
+    setTimeout(()=>{try{window.MapEngine?.refitOpenPopup?.();}catch(_){ }},220);
+    return false;
+  };
+  window.myMapOpenPopupCalculatorV226=function(id,mode,ev){return openCalc(id,mode,ev);};
+  calc.calculatorMenuHtmlForAsset=function(asset){
+    try{
+      if(calc.shouldOffer&&!calc.shouldOffer(asset))return '';
+      const id=calc.registerAsset(asset);
+      const safe=esc(id);
+      return `<div class="fmCalcCompactV226" data-calc-root="1" onclick="event.stopPropagation();" onpointerdown="event.stopPropagation();" ontouchstart="event.stopPropagation();"><button class="fmCalcCompactToggleV226" type="button" aria-expanded="false" onclick="return window.myMapToggleCalcMenuV226(this,event);">Calculators +</button><div class="fmCalcCompactBodyV226" hidden><button class="fmSWInlineBtn fmCalcBtn fmConductorWeightBtn" type="button" onclick="return window.myMapOpenPopupCalculatorV226('${safe}','weight',event);">Lift / span weight</button><button class="fmSWInlineBtn fmCalcBtn fmPullLoadBtn" type="button" onclick="return window.myMapOpenPopupCalculatorV226('${safe}','pull',event);">Pull / unload</button><button class="fmSWInlineBtn fmCalcBtn fmAnglePullBtn" type="button" onclick="return window.myMapOpenPopupCalculatorV226('${safe}','angle',event);">Angle pull-back</button></div></div>`;
+    }catch(_){return '';}
+  };
+  function capture(ev){
+    const t=ev?.target;
+    if(!t?.closest)return;
+    const toggle=t.closest('.fmCalcCompactToggleV226');
+    if(toggle){window.myMapToggleCalcMenuV226(toggle,ev); return false;}
+    const btn=t.closest('.fmCalcCompactV226 .fmCalcBtn');
+    if(btn){
+      const id=btn.getAttribute('data-mymap-calc-id')||'';
+      const mode=btn.getAttribute('data-mymap-calc-mode')||'';
+      if(id){openCalc(id,mode||'weight',ev); return false;}
+    }
+  }
+  ['click','pointerup','touchend'].forEach(type=>window.addEventListener(type,capture,true));
+})();
+
+
+/* myMap v3.1.227: compact calculator menu inside More info without closing More info.
+   The previous compact button tapped inside the native More info <details> and the parent details closed.
+   This patch traps all pointer/touch/click events inside the calculator block, keeps the parent details open,
+   and uses a plain hidden div for the 3 calculator options. */
+(function(){
+  const calc=window.FieldMapSpanWeightCalculator;
+  if(!calc||calc.__v227MoreInfoCalcNoClose)return; calc.__v227MoreInfoCalcNoClose=true;
+  const esc=(v)=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  function hardStop(ev,prevent=false){
+    try{
+      if(prevent)ev?.preventDefault?.();
+      ev?.stopPropagation?.();
+      ev?.stopImmediatePropagation?.();
+      if(window.L?.DomEvent&&ev){ if(prevent)L.DomEvent.preventDefault(ev); L.DomEvent.stopPropagation(ev); }
+    }catch(_){ }
+  }
+  function keepMoreOpen(el){
+    try{
+      const d=el?.closest?.('details.popup-more-details');
+      if(d){ d.open=true; d.dataset.userOpen='1'; }
+      setTimeout(()=>{try{const dd=el?.closest?.('details.popup-more-details'); if(dd){dd.open=true;dd.dataset.userOpen='1';}}catch(_){ }},0);
+      setTimeout(()=>{try{const dd=el?.closest?.('details.popup-more-details'); if(dd){dd.open=true;dd.dataset.userOpen='1';}}catch(_){ }},80);
+      setTimeout(()=>{try{window.MapEngine?.refitOpenPopup?.();}catch(_){ }},90);
+    }catch(_){ }
+  }
+  function openCalc(id,mode,ev){
+    hardStop(ev,true);
+    keepMoreOpen(ev?.target);
+    try{window.__myMapCalcOpeningUntil=Date.now()+1800;}catch(_){ }
+    setTimeout(()=>{
+      try{
+        ['fieldMapSpanWeightOverlay','fieldMapPullLoadOverlay','fieldMapAnglePullOverlay'].forEach(x=>{const el=document.getElementById(x); if(el)el.remove();});
+        if(mode==='pull')calc.openPullForAssetId(id);
+        else if(mode==='angle')calc.openAnglePullForAssetId(id);
+        else calc.openForAssetId(id);
+      }catch(e){try{alert('Calculator failed to open: '+(e?.message||e));}catch(_){ }}
+    },35);
+    return false;
+  }
+  window.myMapToggleCalcMenuV227=function(btn,ev){
+    hardStop(ev,true);
+    keepMoreOpen(btn||ev?.target);
+    const root=btn?.closest?.('.fmCalcCompactV227');
+    if(!root)return false;
+    const body=root.querySelector('.fmCalcCompactBodyV227');
+    const open=!root.classList.contains('open');
+    root.classList.toggle('open',open);
+    if(body)body.hidden=!open;
+    btn.setAttribute('aria-expanded',open?'true':'false');
+    btn.textContent=open?'Calculators −':'Calculators +';
+    keepMoreOpen(root);
+    return false;
+  };
+  window.myMapOpenPopupCalculatorV227=function(id,mode,ev){return openCalc(id,mode,ev);};
+  calc.calculatorMenuHtmlForAsset=function(asset){
+    try{
+      if(calc.shouldOffer&&!calc.shouldOffer(asset))return '';
+      const id=esc(calc.registerAsset(asset));
+      return `<div class="fmCalcCompactV227" data-calc-root="1" onpointerdown="event.stopPropagation();" ontouchstart="event.stopPropagation();" onclick="event.stopPropagation();"><button class="fmCalcCompactToggleV227" type="button" aria-expanded="false" onclick="return window.myMapToggleCalcMenuV227(this,event);">Calculators +</button><div class="fmCalcCompactBodyV227" hidden><button class="fmSWInlineBtn fmCalcBtn fmConductorWeightBtn" type="button" onclick="return window.myMapOpenPopupCalculatorV227('${id}','weight',event);">Lift / span weight</button><button class="fmSWInlineBtn fmCalcBtn fmPullLoadBtn" type="button" onclick="return window.myMapOpenPopupCalculatorV227('${id}','pull',event);">Pull / unload</button><button class="fmSWInlineBtn fmCalcBtn fmAnglePullBtn" type="button" onclick="return window.myMapOpenPopupCalculatorV227('${id}','angle',event);">Angle pull-back</button></div></div>`;
+    }catch(_){return '';}
+  };
+  function capture(ev){
+    const t=ev?.target;
+    if(!t?.closest)return;
+    const root=t.closest('.fmCalcCompactV227');
+    if(!root)return;
+    keepMoreOpen(root);
+    // Block More info <details> and Leaflet popup handlers from receiving calculator taps.
+    const toggle=t.closest('.fmCalcCompactToggleV227');
+    const btn=t.closest('.fmCalcCompactBodyV227 .fmCalcBtn');
+    if(ev.type==='click'){
+      if(toggle){window.myMapToggleCalcMenuV227(toggle,ev); return false;}
+      if(btn){
+        let mode='weight';
+        if(btn.classList.contains('fmPullLoadBtn'))mode='pull';
+        if(btn.classList.contains('fmAnglePullBtn'))mode='angle';
+        const id=root.dataset.calcAssetId||'';
+        // Prefer onclick id if present; fallback scans inline attribute.
+        const raw=String(btn.getAttribute('onclick')||'');
+        const m=raw.match(/myMapOpenPopupCalculatorV227\('([^']+)'\s*,\s*'([^']+)'/);
+        return openCalc(m?m[1]:id,m?m[2]:mode,ev);
+      }
+      hardStop(ev,true); return false;
+    }
+    hardStop(ev,false);
+  }
+  ['pointerdown','touchstart','mousedown','pointerup','touchend','mouseup','click'].forEach(type=>window.addEventListener(type,capture,true));
+})();
+
+
+/* myMap v3.1.228: remove calculators from asset popup.
+   Calculators now live in Tools only. This deliberately returns no popup HTML. */
+(function(){
+  const calc=window.FieldMapSpanWeightCalculator;
+  if(!calc||calc.__v228ToolsOnlyCalculators)return; calc.__v228ToolsOnlyCalculators=true;
+  calc.calculatorMenuHtmlForAsset=function(){return '';};
+})();
+
+
+/* myMap v3.1.230: production clean guard.
+   Keep conductor calculators out of asset popups. Tools is the only calculator entry point. */
+(function(){
+  const calc=window.FieldMapSpanWeightCalculator;
+  if(!calc||calc.__v229ToolsOnlyGuard)return; calc.__v229ToolsOnlyGuard=true;
+  calc.calculatorMenuHtmlForAsset=function(){return '';};
 })();

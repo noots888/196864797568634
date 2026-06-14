@@ -2,7 +2,7 @@ const SearchEngine={
   lineMap:new Map(),
   assetMap:new Map(),
   conductorSections:[],
-  pass2IndexVersion:'base-r1-pass2-indexed-search-v34-oh-hv-spur-branch',
+  pass2IndexVersion:'base-r1-pass2-indexed-search-v35-hbk-muc-multipole',
   docCache:null,
   kindIndex:null,
   indexRunning:false,
@@ -934,6 +934,28 @@ const SearchEngine={
       }catch(e){return a;}
     });
   },
+  transmissionStructureInstanceKey(a){
+    if(!a||typeof a!=='object')return '';
+    try{
+      if(this.isConductorSpanAsset?.(a)||this.isUtilityAsset?.(a)||this.isHVCrossingAsset?.(a))return '';
+      const raw=a.raw||{};
+      const kind=String(a.kind||'').toLowerCase();
+      const text=[kind,a.category,a.assetType,a.sourceFile,a.sourcePath,raw.asset_type,raw.ASSET_TYPE,raw.trmsn_line_gis_label,raw.TRMSN_LINE_GIS_LABEL,raw.LINE_NAME,raw.line_name].join(' ').toUpperCase();
+      if(/TRANSFORMER|ENCLOSURE|STREETLIGHT|STREET\s*LIGHT|DISTRIBUTION\s+POLE|DX\s*POLE|HV\s*TX\s*CROSSING|CROSSING/.test(text))return '';
+      const sid=this.compact(this.rawValue(raw,['STRUCTURE_ID','structure_id','TOWER_ID','tower_id','POLE_ID','pole_id','ASSET_ID','asset_id'])||a.structureId||'');
+      // Only use the strong multi-pole key when the source supplies a real structure id.
+      // This keeps separate physical poles such as HBK-MUC 81-0125/0126 instead of merging them by line+number.
+      if(!sid)return '';
+      const refs=this.lineRefsForAsset?.(a,true)||[];
+      const candidates=refs.length?refs:[{line:a.line||a.substation||'',pole:a.poleNumber||a.structure||a.label||''}];
+      for(const r of candidates){
+        const line=this.compact(this.formatCircuitName(r.line||''));
+        const pole=this.poleKey(r.pole||a.poleNumber||'');
+        if(line&&pole)return `STRUCTINST|${line}|P${pole}|SID${sid}`;
+      }
+    }catch(e){}
+    return '';
+  },
   displayIdForKey(a){
     const gis=String(a?.gisLabel||a?.label||'').trim();
     const pole=String(a?.poleNumber||'').trim();
@@ -953,6 +975,8 @@ const SearchEngine={
     return '';
   },
   keyFor(a){
+    const inst=this.transmissionStructureInstanceKey?.(a);
+    if(inst)return inst;
     const line=this.compact(this.formatCircuitName(a?.line||a?.substation||''));
     const id=this.displayIdForKey(a);
     if(line&&id)return `${line}|${id}`;
@@ -968,6 +992,8 @@ const SearchEngine={
   coordKeyFor(a,precision=5){return Number.isFinite(a?.lat)&&Number.isFinite(a?.lon)?`GPS${precision}|${Number(a.lat).toFixed(precision)},${Number(a.lon).toFixed(precision)}`:'';},
   keyAliases(a){
     const keys=[]; const add=k=>{if(k&&!keys.includes(k))keys.push(k);};
+    const inst=this.transmissionStructureInstanceKey?.(a);
+    if(inst){add(inst);return keys;}
     const refs=this.lineRefsForAsset(a);
     const line=this.compact(this.formatCircuitName(a?.line||a?.substation||''));
     const pole=String(a?.poleNumber||'').trim();
@@ -1000,28 +1026,104 @@ const SearchEngine={
     // line + pole numbers, structure labels or asset IDs.
     return keys;
   },
+  weakStructureAliases(a){
+    const keys=[]; const add=k=>{if(k&&!keys.includes(k))keys.push(k);};
+    try{
+      if(!a||typeof a!=='object')return keys;
+      if(this.isConductorSpanAsset?.(a)||this.isUtilityAsset?.(a)||this.isHVCrossingAsset?.(a))return keys;
+      const kind=String(a.kind||'').toLowerCase();
+      if(/^(substation|terminal|depot|transformer|streetlight|electrical-enclosure|dx-pole)$/i.test(kind))return keys;
+      const refs=this.lineRefsForAsset?.(a,true)||[];
+      const line=this.compact(this.formatCircuitName(a?.line||a?.substation||''));
+      const pole=String(a?.poleNumber||'').trim();
+      if(line&&pole)add(`${line}|P${this.poleKey(pole)}`);
+      for(const r of refs){
+        const l=this.compact(this.formatCircuitName(r.line||''));
+        const p=this.poleKey(r.pole||a?.poleNumber||'');
+        if(l&&p)add(`${l}|P${p}`);
+      }
+    }catch(e){}
+    return keys;
+  },
+  structureSid(a){
+    try{return this.compact(this.rawValue(a?.raw||{},['STRUCTURE_ID','structure_id','TOWER_ID','tower_id','POLE_ID','pole_id','ASSET_ID','asset_id'])||a?.structureId||'');}catch(e){return '';}
+  },
+  mergeDistanceM(a,b){
+    const lat1=Number(a?.lat), lon1=Number(a?.lon), lat2=Number(b?.lat), lon2=Number(b?.lon);
+    if(!Number.isFinite(lat1)||!Number.isFinite(lon1)||!Number.isFinite(lat2)||!Number.isFinite(lon2))return Infinity;
+    const R=6371000, toRad=x=>x*Math.PI/180;
+    const dLat=toRad(lat2-lat1), dLon=toRad(lon2-lon1);
+    const s1=Math.sin(dLat/2), s2=Math.sin(dLon/2);
+    const h=s1*s1+Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*s2*s2;
+    return 2*R*Math.asin(Math.min(1,Math.sqrt(h)));
+  },
+  compatibleWeakMergeCandidate(candidates,incoming){
+    try{
+      const list=(candidates||[]).filter(Boolean);
+      if(!list.length)return null;
+      const inSid=this.structureSid(incoming);
+      const sameSid=inSid?list.filter(a=>this.structureSid(a)===inSid):[];
+      if(sameSid.length===1)return sameSid[0];
+      if(list.length===1){
+        const only=list[0];
+        const d=this.mergeDistanceM(only,incoming);
+        const onlySid=this.structureSid(only);
+        if(!Number.isFinite(d)||d<=20||!onlySid||!inSid)return only;
+        return null;
+      }
+      const withDist=list.map(a=>({a,d:this.mergeDistanceM(a,incoming)})).filter(x=>Number.isFinite(x.d)).sort((x,y)=>x.d-y.d);
+      if(withDist.length&&withDist[0].d<=8&&(withDist.length===1||withDist[1].d-withDist[0].d>=2))return withDist[0].a;
+    }catch(e){}
+    return null;
+  },
+  sourcePriority(a){
+    if(!a||typeof a!=='object')return -999;
+    const raw=a.raw||{};
+    const file=String(a.sourceFile||'').toUpperCase();
+    const keys=Object.keys(raw).join(' ').toUpperCase();
+    let score=0;
+    if(a.sourceType==='json'||(Array.isArray(a.sources)&&a.sources.includes('json')))score+=55;
+    if(a.sourceType==='csv')score+=25;
+    if(a.sourceType==='merged')score+=35;
+    const rawCount=Object.keys(raw).length;
+    score+=Math.min(40,rawCount);
+    if(a.poleHeight||a.poleLength)score+=18;
+    if(a.material)score+=10;
+    if(a.conductor)score+=8;
+    if(/STRUC.*TYP|SUB_STRUC|STRUC_CAT|POLE.*HEIGHT|POLE.*LEN|MATRL|MATERIAL|NP_DWG|DRAWING|DWG|CONDUCTOR/i.test(keys))score+=28;
+    if(/NEARBY_HV|UTILITY_|WATER_|SEWER_|RAIL_|ESA_|GAS_/i.test(keys))score+=6;
+    if(a.publicRecovery||a.sourceQuality==='public-recovery-real-gps'||raw.PUBLIC_RECOVERY)score-=90;
+    if(/TRANSMISSION[_\s-]*POLES?[_\s-]*(HVCTX|UTILITY|NEARBY)|UTILITY[_\s-]*CONTEXT|PUBLIC[_\s-]*SECURE|WP[_\s-]*030|PUBLIC[_\s-]*STRUCTURE[_\s-]*RECOVERY/i.test(file))score-=45;
+    if(!/PUBLIC|WP[_\s-]*030|MYMAP[_\s-]*TRANSMISSION[_\s-]*POLES?[_\s-]*(HVCTX|UTILITY|NEARBY)/i.test(file)&&/POLE|TOWER|STRUCTURE|TRMSN|TRANSMISSION/i.test(file+keys))score+=25;
+    return score;
+  },
   mergePair(existing,rec){
-    const existingJson=this.hasJson(existing), recJson=this.hasJson(rec);
     const existingRecovery=!!(existing?.publicRecovery||existing?.sourceQuality==='public-recovery-real-gps'||existing?.raw?.PUBLIC_RECOVERY);
     const recRecovery=!!(rec?.publicRecovery||rec?.sourceQuality==='public-recovery-real-gps'||rec?.raw?.PUBLIC_RECOVERY);
-    const jsonWins=recJson&&!existingJson;
-    // Public recovery imports are for filling missing GPS/dots. Do not let the lean
-    // public row overwrite richer user/imported structure details unless the existing
-    // row is also recovery-only.
-    const recoveryShouldNotWin=recRecovery&&!existingRecovery;
-    const base=recoveryShouldNotWin?existing:(jsonWins?rec:existing);
-    const other=recoveryShouldNotWin?rec:(jsonWins?existing:rec);
+    const existingPriority=this.sourcePriority(existing);
+    const recPriority=this.sourcePriority(rec);
+    let base=(recPriority>existingPriority+3)?rec:existing;
+    let other=base===rec?existing:rec;
+    // Public recovery/context imports are for filling missing GPS and popup context. Do not let them
+    // overwrite richer private/imported pole details, regardless of upload order.
+    if(recRecovery&&!existingRecovery){base=existing; other=rec;}
+    else if(existingRecovery&&!recRecovery){base=rec; other=existing;}
     const sources=Array.from(new Set([...this.sourceList(existing),...this.sourceList(rec)].filter(Boolean)));
     const sourceFiles=Array.from(new Set([...this.fileList(existing),...this.fileList(rec)].filter(Boolean)));
     const merged={...other,...base,raw:{...(other.raw||{}),...(base.raw||{})},sources,sourceFiles};
-    if(!Number.isFinite(merged.lat)&&Number.isFinite(other.lat))merged.lat=other.lat;
-    if(!Number.isFinite(merged.lon)&&Number.isFinite(other.lon))merged.lon=other.lon;
-    if((recRecovery||existingRecovery)&&Number.isFinite(other.lat)&&Number.isFinite(other.lon)){
-      if(!Number.isFinite(base.lat)||!Number.isFinite(base.lon)){merged.lat=other.lat; merged.lon=other.lon;}
+    if(!Number.isFinite(Number(merged.lat))&&Number.isFinite(Number(other.lat)))merged.lat=other.lat;
+    if(!Number.isFinite(Number(merged.lon))&&Number.isFinite(Number(other.lon)))merged.lon=other.lon;
+    if((recRecovery||existingRecovery)&&Number.isFinite(Number(other.lat))&&Number.isFinite(Number(other.lon))){
+      if(!Number.isFinite(Number(base.lat))||!Number.isFinite(Number(base.lon))){merged.lat=other.lat; merged.lon=other.lon;}
       merged.publicRecovery=!!(existingRecovery||recRecovery);
       merged.sourceQuality=merged.sourceQuality||'public-recovery-real-gps';
     }
+    // Keep app-added context even when the private pole source wins the main fields.
+    for(const [k,v] of Object.entries(other.raw||{})){
+      if(v!==undefined&&v!==null&&/^(NEARBY_HV|UTILITY_|WATER_|SEWER_|RAIL_|ESA_|GAS_|PETROLEUM_|NEAREST_|COUNT_|SOURCE_)/i.test(k)&&merged.raw[k]===undefined)merged.raw[k]=v;
+    }
     merged.routeCoords=base.routeCoords||other.routeCoords;
+    merged.polygonRings=base.polygonRings||other.polygonRings;
     merged.gisLabel=base.gisLabel||other.gisLabel;
     merged.poleNumber=base.poleNumber||other.poleNumber;
     merged.rawStructure=base.rawStructure||other.rawStructure;
@@ -1031,10 +1133,11 @@ const SearchEngine={
       if(p.poleNumber)merged.poleNumber=p.poleNumber;
       if(base.sourceType==='geojson'||merged.kind==='structure'||merged.kind==='dx-pole'){merged.label=merged.gisLabel; merged.structure=merged.gisLabel;}
     }
-    merged.sourceType=sources.includes('json')&&sources.includes('geojson')?'merged':(sources[0]||base.sourceType);
+    merged.sourceType=sources.includes('json')&&sources.includes('geojson')?'merged':(base.sourceType||sources[0]||other.sourceType);
     const allRefs=this.lineRefsForAsset(merged).map(r=>`${r.line} ${r.pole||''}`).join(' ');
     merged.lineAliases=this.lineAliasesForAsset(merged);
-    merged.searchText=[existing.searchText,rec.searchText,Object.values(merged.raw||{}).join(' '),merged.gisLabel,merged.poleNumber,merged.line,merged.structure,merged.label,allRefs].join(' ').toUpperCase();
+    const rawText=Object.entries(merged.raw||{}).filter(([k,v])=>!/^UTILITY_GEOM_/i.test(k)).map(([k,v])=>v).join(' ');
+    merged.searchText=[existing.searchText,rec.searchText,rawText,merged.gisLabel,merged.poleNumber,merged.line,merged.structure,merged.label,allRefs].join(' ').slice(0,12000).toUpperCase();
     return merged;
   },
   mergeAssets(records){
@@ -1080,6 +1183,8 @@ const SearchEngine={
   },
   assetIdentityKey(a){
     if(!a||typeof a!=='object')return '';
+    const inst=this.transmissionStructureInstanceKey?.(a);
+    if(inst)return inst;
     const raw=a.raw||{};
     const kind=String(a.kind||'asset').toLowerCase();
     const refs=this.lineRefsForAsset?.(a,true)||[];
@@ -1361,7 +1466,17 @@ const SearchEngine={
     return /DX\s*CROSSING|DX_CROSSINGS|TX[_\s-]*DX|HV\s*CROSSING|HV_CROSSINGS|HVCROSSING|CROSSING_POINTS|TRANSMISSION_X_(?:HV|HV_DISTRIBUTION|DISTRIBUTION)|FIELD_MAP_(?:DX|HV)_CROSSINGS/.test(text);
   },
   isUtilityAsset(a){
-    return !!a&&/^utility-/i.test(String(a.kind||''));
+    if(!a)return false;
+    try{
+      const raw=a.raw||{};
+      const kind=String(a.kind||raw.KIND||raw.kind||raw.asset_type||'').toLowerCase();
+      const file=String(a.sourceFile||a.sourcePath||'').toUpperCase();
+      if(/^utility-/i.test(kind))return true;
+      if(String(raw.DRAW_CONTEXT_SIDECAR||'')==='1')return true;
+      if(Object.keys(raw).some(k=>/^UTILITY_CONTEXT_MODE$/i.test(k)))return true;
+      if(/POLE[_\s-]*DRAW[_\s-]*CONTEXT|FAST[_\s-]*CONTEXT|UTILITY[_\s-]*ROUTE[_\s-]*SNIPPETS/i.test(file))return true;
+    }catch(e){}
+    return false;
   },
   canContributeTransmissionCircuit(a){
     if(!a||typeof a!=='object')return false;
@@ -1521,7 +1636,9 @@ const SearchEngine={
     if(!key)return;
     if(!groups.has(key))groups.set(key,{line,rows:new Map(),rawCount:0});
     const g=groups.get(key); g.rawCount++;
-    const rowKey=ord.key||String(ord.order);
+    const raw=asset.raw||{};
+    const sid=this.compact(this.rawValue(raw,['STRUCTURE_ID','structure_id','TOWER_ID','tower_id','POLE_ID','pole_id'])||asset.structureId||'');
+    const rowKey=(ord.key||String(ord.order))+(sid?`|SID${sid}`:'');
     if(!g.rows.has(rowKey))g.rows.set(rowKey,{order:ord.order,key:rowKey,token:ord.token,pts:new Map()});
     const row=g.rows.get(rowKey);
     const pkey=lat.toFixed(7)+','+lon.toFixed(7);
@@ -1530,7 +1647,7 @@ const SearchEngine={
   buildCircuitPathIndex(records=null,opts={}){
     this.ensureIndexContainers();
     const list=Array.isArray(records)?records:(App.assets||[]);
-    const stamp=`${list.length}|${App?.lastImport?.time||''}|${this.lineMap?.size||0}|v35`;
+    const stamp=`${list.length}|${App?.lastImport?.time||''}|${this.lineMap?.size||0}|v36-hbk-muc`;
     if(!opts.force&&this.circuitPathIndexStamp===stamp&&this.circuitPathIndex?.size)return this.circuitPathIndex;
     const started=Date.now();
     const groups=new Map();
@@ -2268,6 +2385,10 @@ const SearchEngine={
     if(s<=0)return 0;
     if(Number.isFinite(a.lat)&&Number.isFinite(a.lon))s+=4;
     if(a.sourceType==='json'||a.sourceType==='merged')s+=3;
+    if((String(a.kind||'').toLowerCase()==='structure'||this.lineRefsForAsset(a,true).length)&&this.detailScore){
+      const ds=this.detailScore(a);
+      if(Number.isFinite(ds))s+=Math.max(-20,Math.min(35,Math.round(ds/8)));
+    }
     return s;
   },
   passesFilters(a){
@@ -2516,12 +2637,15 @@ const SearchEngine={
     if(a.poleHeight)score+=20;
     if(a.poleLength)score+=20;
     if(a.material)score+=15;
+    if(a.conductor)score+=8;
     if(a.category)score+=10;
     const raw=a.raw||{};
     const keys=Object.keys(raw).join(' ');
-    if(/STRUC.*TYP|POLE.*HEIGHT|POLE.*LEN|MATRL|MATERIAL|NP_DWG|DRAWING|DWG/i.test(keys))score+=30;
+    if(/STRUC.*TYP|SUB_STRUC|STRUC_CAT|POLE.*HEIGHT|POLE.*LEN|MATRL|MATERIAL|NP_DWG|DRAWING|DWG|CONDUCTOR/i.test(keys))score+=30;
+    if(/NEARBY_HV|UTILITY_|WATER_|SEWER_|RAIL_|ESA_|GAS_/i.test(keys))score+=5;
     if(Number.isFinite(Number(a.lat))&&Number.isFinite(Number(a.lon)))score+=5;
-    if(a.publicRecovery||a.sourceQuality==='public-recovery-real-gps')score-=10;
+    if(this.sourcePriority)score+=Math.round(this.sourcePriority(a)/3);
+    if(a.publicRecovery||a.sourceQuality==='public-recovery-real-gps')score-=30;
     return score;
   },
   poleLookupKey(line,pole){
@@ -2554,13 +2678,13 @@ const SearchEngine={
   },
   findDetailAsset(line,pole,current=null){
     try{
-      const currentRaw=Object.keys(current?.raw||{}).length;
-      const currentHasCore=current&&!current.inferredMissingStructure&&currentRaw>6&&(current.poleHeight||current.poleLength||current.material||current.category);
-      if(currentHasCore)return current;
       this.ensurePoleDetailIndex();
       const key=this.poleLookupKey(line,pole);
       const hit=key?this.poleDetailMap.get(key):null;
-      return hit?.asset||current||null;
+      const candidate=hit?.asset||null;
+      if(!candidate)return current||null;
+      if(!current)return candidate;
+      return this.detailScore(candidate)>this.detailScore(current)+4?candidate:current;
     }catch(e){return current||null;}
   },
 
@@ -2614,3 +2738,94 @@ const SearchEngine={
   }
 };
 if(typeof window!=='undefined')window.SearchEngine=SearchEngine;
+
+/* myMap v3.1.156: cancellable file-level indexing + deferred heavy path optimisation */
+(function(){
+  if(typeof SearchEngine==='undefined')return;
+  const abortCheck=function(ctx){
+    if(typeof ImportEngine!=='undefined'&&ImportEngine.cancelRequested)throw ctx.makeAbortError?.(ImportEngine.cancelReason||'Import cancelled by user')||new Error('Import cancelled');
+    ctx.assertIndexNotCancelled?.();
+  };
+  SearchEngine.indexFileRecords=async function(records=[],meta={},reason='File-level index',opts={}){
+    this.ensureIndexContainers();
+    this.indexRunning=true;
+    this.indexCancelRequested=false;
+    this.indexCancelReason='';
+    this.recoveryLineCache=new Map();
+    this.poleDetailMapBuilt=false;
+    this.poleDetailMap=new Map();
+    const list=Array.isArray(records)?records:[];
+    const total=list.length||1;
+    let indexed=0, tokenLinks=0, gpsIndexed=0, utilitySkipped=0;
+    const start=Date.now();
+    App.indexHealth=App.indexHealth||{mode:'file-level',queue:[],files:[]};
+    App.indexHealth.current={name:meta.name||meta.fileName||'current file',status:'indexing',startedAt:new Date().toISOString(),total:list.length};
+    try{
+      abortCheck(this);
+      const yieldEvery=total>50000?180:(total>15000?250:400);
+      for(let i=0;i<list.length;i++){
+        const asset=list[i];
+        if(!asset)continue;
+        try{
+          if(this.isUtilityAsset(asset)){utilitySkipped++; continue;}
+          const res=this.indexOneAsset(asset,(this.assetMap?.size||0)+i);
+          if(res){indexed++; tokenLinks+=res.tokenLinks||0; if(Number.isFinite(Number(asset.lat))&&Number.isFinite(Number(asset.lon))&&asset.kind!=='circuit')gpsIndexed++;}
+        }catch(err){Diagnostics?.log?.('Skipped asset during file index',String(err?.message||err));}
+        if(i%yieldEvery===0){
+          abortCheck(this);
+          UI?.progress?.(true,reason,`${meta.name||meta.fileName||'file'}: indexed ${i.toLocaleString()} / ${total.toLocaleString()} · tap Cancel to stop`,92+Math.min(4,Math.round((i/total)*4)));
+          await new Promise(r=>setTimeout(r,0));
+          abortCheck(this);
+        }
+      }
+      const touched=new Set();
+      for(let i=0;i<list.length;i++){
+        const a=list[i]; if(!a)continue;
+        for(const line of this.lineAliasesForAsset(a)||[]){const g=this.lineMap.get(this.compact(line)); if(g&&!touched.has(g)){g.assets.sort(this.sortByStructure); touched.add(g);}}
+        if(i%1000===0){abortCheck(this); await new Promise(r=>setTimeout(r,0));}
+      }
+      if(!opts?.deferCircuitPath){try{await this.buildCircuitPathIndexAsync(App.assets||[],reason||'Circuit path optimiser');}catch(err){if(err?.name==='AbortError')throw err;Diagnostics?.log?.('Circuit path optimiser skipped',String(err?.message||err));}}
+      this.indexStats={
+        ...(this.indexStats||{}),
+        rebuiltAt:this.indexStats?.rebuiltAt||new Date().toISOString(),
+        lastFileIndexedAt:new Date().toISOString(),
+        lastFile:meta.name||meta.fileName||'',
+        lastFileMs:Date.now()-start,
+        assetsIndexed:this.assetMap?.size||0,
+        gpsIndexed:(this.indexStats?.gpsIndexed||0)+gpsIndexed,
+        lineGroups:this.lineMap?.size||0,
+        circuitPathGroups:this.circuitPathIndex?.size||0,
+        tokenCount:this.tokenIndex?.size||0,
+        tokenLinks:(this.indexStats?.tokenLinks||0)+tokenLinks,
+        utilitySkipped:(this.indexStats?.utilitySkipped||0)+utilitySkipped,
+        spatialCells:this.spatialIndex?.size||0,
+        schema:App.schema||{},
+        mode:'file-level incremental cancellable',
+        pass2Index:this.pass2IndexVersion,
+        kindIndexCounts:Object.fromEntries(Object.entries(this.kindIndex||{}).map(([k,v])=>[k,Array.isArray(v)?v.length:0])),
+        structureMapAudit:this.structureMapDotAudit(App.assets||[])
+      };
+      return {indexed,tokenLinks,gpsIndexed,ms:Date.now()-start};
+    }finally{
+      App.indexHealth.current=null;
+      this.indexRunning=false;
+    }
+  };
+
+  const originalBuildPathAsync=SearchEngine.buildCircuitPathIndexAsync?.bind(SearchEngine);
+  SearchEngine.buildCircuitPathIndexAsync=async function(records=null,reason='Optimising transmission circuit paths'){
+    const list=records||(App.assets||[]);
+    abortCheck(this);
+    const count=Array.isArray(list)?list.length:0;
+    if(count>80000 && typeof ImportEngine!=='undefined' && ImportEngine.importRunning){
+      this.circuitPathIndex=this.circuitPathIndex||new Map();
+      this.circuitEndpointPathIndex=this.circuitEndpointPathIndex||new Map();
+      this.circuitPathStats={builtAt:new Date().toISOString(),deferred:true,reason:'deferred during bulk import',scanned:count,circuits:this.circuitPathIndex.size||0,points:0,segments:0};
+      UI?.progress?.(true,reason,'Path optimisation deferred to keep bulk import responsive',96);
+      await new Promise(r=>setTimeout(r,0));
+      abortCheck(this);
+      return this.circuitPathIndex;
+    }
+    return originalBuildPathAsync?originalBuildPathAsync(list,reason):this.buildCircuitPathIndex(list,{force:true});
+  };
+})();

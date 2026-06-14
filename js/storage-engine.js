@@ -73,15 +73,28 @@ const StorageEngine={
     const entries=Object.entries(raw);
     const keep={};
     const smallEnough=entries.length<=72;
-    const always=/^(OBJECTID|OBJECT_ID|ID|GLOBALID|GLOBAL_ID|asset_id|assetid|PICK_ID|pick_id|EQUIP_NAME|equip_name|EQUIP_NO|Equipment No|EQUIPMENT_NO|ELLIPSE_PLNT_NO|Ellipse Plant No|LINE_NAME|LINE_NAME_\d+|line_name|line_name_\d+|CIRCUIT|CIRCUIT_NAME|ROUTE_NAME|netwk_name|NETWORK_ID|NETWORK_NAME|NAME|Name|name|TITLE|Label|LABEL|label|STRUCTURE_LABEL|structure_label|TRMSN_LINE_GIS_LABEL|trmsn_line_gis_label|GIS_LABEL|gis_label|LINE_GIS_LABEL|NAMEPLATE_ID|NAMEPLATE_ID_\d+|POLE_NUMBER|POLE_NO|POLE_NUM|STRUCTURE_NO|STRUCT_NO|S_NO|SNUM|POINT_NO|POINT_ID|FIRST_NAME_PLATE_ID|LAST_NAME_PLATE_ID|FIRST_STRUCTURE|LAST_STRUCTURE|FROM_STRUCTURE|TO_STRUCTURE|FIRST_POLE|LAST_POLE|LATITUDE|LONGITUDE|latitude|longitude|lat|lon|lng|x|y|X|Y|EASTING|NORTHING|ZONE_|ZONE|UTM_ZONE|STRUC_TYP_DESC|STRUCTURE_TYPE|STRUC_CAT_DESC|SUB_STRUC_DESC|pole_type|POLE_TYPE|MATRL_TYP_DESC|MATERIAL|Material|POLE_LEN_M|POLE_HEIGHT_M|POLE_LENGTH|POLE_HEIGHT|LEN_M|HEIGHT_M|CONDUCTOR_ID_DESC|CONDUCTOR|CONDUCTOR_TYPE|WIRE_TYPE|EARTH_WIRE_1_ID_DESC|EARTH_WIRE_2_ID_DESC|COND_NO_PHS_QTY|CONDUCTOR_QTY|CABLE_ID|STRUNG_SECTION_TYP_ID_DESC|VOLTAGE|Voltage|KV|kv|SUBSTATION|SUBSTATION_NAME|SEARCH_FIELD|ABBREVIATION|DEPOT_NAME|DEPOT|SUBSTATION_TYPE|OWNER|AER_NSP|ADDRESS|ADDRESS_FULL|LOCATION|ROAD_NAME|STREET_NAME|STREET|ROAD|SUBURB|LOCALITY|TOWN|KVA|RATING_KVA|RATING|CAPACITY|CAPACITY_KVA|ASSET_TYPE|asset_type|ASSET_CLASS|asset_class|TYPE|Feature Type|FEATURE_TYPE|LAYER|LAYER_NAME|layer|layerName|CLASS|CLASSIFICATION|DESCRIPTION|DESC|COMMENTS|NOTES|NP_DWG_NO|DRAWING|DWG|GEOMETRY_TYPE)$/i;
+    const always=/^(OBJECTID|OBJECT_ID|ID|GLOBALID|GLOBAL_ID|STRUCTURE_ID|structure_id|TOWER_ID|tower_id|POLE_ID|pole_id|asset_id|assetid|PICK_ID|pick_id|EQUIP_NAME|equip_name|EQUIP_NO|Equipment No|EQUIPMENT_NO|ELLIPSE_PLNT_NO|Ellipse Plant No|LINE_NAME|LINE_NAME_\d+|line_name|line_name_\d+|CIRCUIT|CIRCUIT_NAME|ROUTE_NAME|netwk_name|NETWORK_ID|NETWORK_NAME|NAME|Name|name|TITLE|Label|LABEL|label|STRUCTURE_LABEL|structure_label|TRMSN_LINE_GIS_LABEL|trmsn_line_gis_label|GIS_LABEL|gis_label|LINE_GIS_LABEL|NAMEPLATE_ID|NAMEPLATE_ID_\d+|POLE_NUMBER|POLE_NO|POLE_NUM|STRUCTURE_NO|STRUCT_NO|S_NO|SNUM|POINT_NO|POINT_ID|FIRST_NAME_PLATE_ID|LAST_NAME_PLATE_ID|FIRST_STRUCTURE|LAST_STRUCTURE|FROM_STRUCTURE|TO_STRUCTURE|FIRST_POLE|LAST_POLE|LATITUDE|LONGITUDE|latitude|longitude|lat|lon|lng|x|y|X|Y|EASTING|NORTHING|ZONE_|ZONE|UTM_ZONE|STRUC_TYP_DESC|STRUCTURE_TYPE|STRUC_CAT_DESC|SUB_STRUC_DESC|pole_type|POLE_TYPE|MATRL_TYP_DESC|MATERIAL|Material|POLE_LEN_M|POLE_HEIGHT_M|POLE_LENGTH|POLE_HEIGHT|LEN_M|HEIGHT_M|CONDUCTOR_ID_DESC|CONDUCTOR|CONDUCTOR_TYPE|WIRE_TYPE|EARTH_WIRE_1_ID_DESC|EARTH_WIRE_2_ID_DESC|COND_NO_PHS_QTY|CONDUCTOR_QTY|CABLE_ID|STRUNG_SECTION_TYP_ID_DESC|VOLTAGE|Voltage|KV|kv|SUBSTATION|SUBSTATION_NAME|SEARCH_FIELD|ABBREVIATION|DEPOT_NAME|DEPOT|SUBSTATION_TYPE|OWNER|AER_NSP|ADDRESS|ADDRESS_FULL|LOCATION|ROAD_NAME|STREET_NAME|STREET|ROAD|SUBURB|LOCALITY|TOWN|KVA|RATING_KVA|RATING|CAPACITY|CAPACITY_KVA|ASSET_TYPE|asset_type|ASSET_CLASS|asset_class|TYPE|Feature Type|FEATURE_TYPE|LAYER|LAYER_NAME|layer|layerName|CLASS|CLASSIFICATION|DESCRIPTION|DESC|COMMENTS|NOTES|NP_DWG_NO|DRAWING|DWG|GEOMETRY_TYPE|NEARBY_(?:HV(?:_CABLE)?|WATER|SEWER|RAIL|ESA|PETROLEUM|GAS)_.*|UTILITY_(?:DETAIL_SUMMARY|RADIUS_M|MARKUP_SOURCE|DRAWABLE_CONTEXT|GEOM_.*|POINT_.*)|ESA_GEOM_.*|KIND|kind|DRAW_CONTEXT_SIDECAR)$/i;
     const usefulLoose=/(line|circuit|feeder|route|structure|pole|tower|nameplate|name|label|asset|equip|type|class|voltage|conductor|earth|wire|height|length|material|substation|depot|terminal|address|road|street|suburb|locality|transformer|kva|kv|owner|operator|network|drawing|dwg|objectid)/i;
     for(const [k,v] of entries){
       if(v===undefined||v===null)continue;
       if(typeof v==='object')continue;
-      const val=this.compactPrimitiveValue(v);
-      if(val===undefined)continue;
+      let val=this.compactPrimitiveValue(v);
       const key=String(k||'').trim();
       if(!key)continue;
+      // ESA overlay polygons are intentionally compact lon,lat strings. Do not truncate them at 900 chars.
+      if(/^ESA_GEOM_/i.test(key)){
+        val=String(v??'').replace(/^\uFEFF/,'').trim();
+        if(!val)continue;
+      }
+      if(val===undefined)continue;
+      // Keep drawable utility snippets only in the small sidecar records, not on every pole.
+      const isDrawSidecar=/utility-draw-context/i.test(String(raw.KIND||raw.kind||raw.asset_type||''))||String(raw.DRAW_CONTEXT_SIDECAR||'')==='1';
+      if(/^UTILITY_GEOM_/i.test(key)&&!isDrawSidecar)continue;
+      if(/^UTILITY_POINT_/i.test(key)){
+        let t=String(v??'').replace(/^\uFEFF/,'').trim();
+        if(t.length>120)t=t.slice(0,120);
+        if(t)val=t;
+      }
       const keepKey=always.test(key)||(smallEnough&&usefulLoose.test(key));
       if(!keepKey)continue;
       // Avoid keeping monster WKT/geometry blobs in IndexedDB. Route/polygon coords already live in compact routeCoords/polygonRings.
@@ -153,6 +166,19 @@ const StorageEngine={
     UI?.progress?.(true,'Saving imported file…',`${meta.name||'file'}: ${saved.toLocaleString()} normal assets saved in ${count.toLocaleString()} chunk(s)`,this.saveProgressPct(meta,'normal',count-1,count));
     return meta;
   },
+
+  scrubLoadedAsset(asset={}){
+    try{
+      if(!asset||typeof asset!=='object')return asset;
+      const raw=asset.raw||{};
+      const isDrawSidecar=String(asset.kind||raw.KIND||raw.kind||'').toLowerCase()==='utility-draw-context'||String(raw.DRAW_CONTEXT_SIDECAR||'')==='1';
+      for(const k of Object.keys(raw)){if(/^UTILITY_GEOM_/i.test(k)&&!isDrawSidecar)delete raw[k];}
+      asset.raw=raw;
+      if(typeof asset.searchText==='string'&&asset.searchText.length>6000)asset.searchText=asset.searchText.slice(0,6000);
+    }catch(e){}
+    return asset;
+  },
+
   async saveUtilityFileAssets(meta={},assets=[]){ return meta||{}; },
   async beginUtilityFileAssets(meta={}){ return meta||{}; },
   async appendUtilityFileAssets(meta={},assets=[]){ return meta||{}; },
@@ -370,7 +396,7 @@ const StorageEngine={
           for(let i=0;i<Number(chunkCount);i++){
             UI?.progress?.(true,'Loading saved data…',`Loading legacy chunk ${i+1} / ${Number(chunkCount)} · ${assets.length.toLocaleString()} assets restored`,15+Math.round((i/Math.max(1,Number(chunkCount)))*25));
             const chunk=await this.get(`assets:${i}`);
-            if(Array.isArray(chunk))assets.push(...chunk.filter(a=>a&&typeof a==='object'));
+            if(Array.isArray(chunk))assets.push(...chunk.filter(a=>a&&typeof a==='object').map(a=>this.scrubLoadedAsset(a)));
             await new Promise(r=>setTimeout(r,0));
           }
         }
@@ -382,7 +408,7 @@ const StorageEngine={
           for(let i=0;i<count;i++){
             UI?.progress?.(true,'Loading saved data…',`Loading ${f.name||'file'} ${i+1} / ${count} · ${assets.length.toLocaleString()} assets restored`,40+Math.round(((fi+(i/Math.max(1,count)))/Math.max(1,pf.length))*30));
             const chunk=await this.get(`fileAssets:${key}:${i}`);
-            if(Array.isArray(chunk))assets.push(...chunk.filter(a=>a&&typeof a==='object'));
+            if(Array.isArray(chunk))assets.push(...chunk.filter(a=>a&&typeof a==='object').map(a=>this.scrubLoadedAsset(a)));
             await new Promise(r=>setTimeout(r,0));
           }
         }
@@ -393,14 +419,14 @@ const StorageEngine={
         for(let i=0;i<Number(chunkCount);i++){
           UI?.progress?.(true,'Loading saved data…',`Loading saved chunk ${i+1} / ${Number(chunkCount)} · ${assets.length.toLocaleString()} assets restored`,20+Math.round((i/Math.max(1,Number(chunkCount)))*45));
           const chunk=await this.get(`assets:${i}`);
-          if(Array.isArray(chunk))assets.push(...chunk.filter(a=>a&&typeof a==='object'));
+          if(Array.isArray(chunk))assets.push(...chunk.filter(a=>a&&typeof a==='object').map(a=>this.scrubLoadedAsset(a)));
           await new Promise(r=>setTimeout(r,0));
         }
         App.assets=assets;
         return;
       }
       const legacy=await this.get('assets');
-      if(Array.isArray(legacy))App.assets=legacy.filter(a=>a&&typeof a==='object');
+      if(Array.isArray(legacy))App.assets=legacy.filter(a=>a&&typeof a==='object').map(a=>this.scrubLoadedAsset(a));
     }catch(err){
       Diagnostics.capture(new Error('Stored database could not be loaded. Use Clear imported data if this repeats. '+(err.message||err)));
       App.assets=[]; App.files=[];
@@ -448,3 +474,19 @@ const StorageEngine={
     await this.set('safeMode',!!App.safeMode);
   }
 };
+
+
+/* myMap v3.1.200: smaller IndexedDB save chunks and import checkpoint updates. */
+(function(){
+  const SE=window.StorageEngine;
+  if(!SE||SE.__v200ChunkCheckpoint)return; SE.__v200ChunkCheckpoint=true;
+  SE.fileAssetChunkSize=Math.min(Number(SE.fileAssetChunkSize||700),500);
+  SE.assetChunkSize=Math.min(Number(SE.assetChunkSize||900),700);
+  const oldSave=SE.saveFileAssets?.bind(SE);
+  SE.saveFileAssets=async function(meta={},assets=[]){
+    try{window.ImportEngine?.markCheckpointStatus?.('saving',meta?.name||'',{saveStartedAt:new Date().toISOString()});}catch(_){ }
+    const res=oldSave?await oldSave(meta,assets):meta;
+    try{window.ImportEngine?.markCheckpointFileDone?.(meta?.name||'',{status:'saved',chunkCount:Number(meta?.chunkCount||0)});}catch(_){ }
+    return res;
+  };
+})();

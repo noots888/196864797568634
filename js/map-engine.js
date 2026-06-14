@@ -1,5 +1,5 @@
 const MapEngine={
-  map:null, layers:{}, markerLayer:null, routeLayer:null, connectedLineLayer:null, utilityLayer:null, userMarker:null, gpsWatchId:null, gpsMode:'free', gpsProfile:'walking', gpsLast:null, gpsError:false, base:'street', satellite:false, drawing:false, drawToken:0, mapRenderer:null, currentDisplay:'none', currentCircuit:null, currentCircuits:[], currentCircuitRoutes:[], lastFullCircuitAssets:[], lastFullCircuitLabel:'', circuitDensityMode:'', gpsNearestCache:null, gpsPanelHidden:false, gpsPanelMinimized:false, gpsPendingLocateOnce:false, gpsInteractionTimer:null, gpsPingMarker:null, gpsPingTimer:null, measureLayer:null, measureMode:false, measurePoints:[], measureSnapEnabled:true, _lastMeasureInput:null, pinDropLayer:null, pinDropMarker:null, savedPinDropLayer:null, savedPinDropsVisible:true, pinDropHoldTimer:null, pinDropHoldMoved:false, breadcrumbLayer:null, breadcrumbEnabled:false, breadcrumbPoints:[], breadcrumbLastPoint:null, breadcrumbLastAt:0, gpsLastRaw:null, gpsRotateHeading:false, mapRotationDeg:0, _mapHeadingUsed:NaN, _mapRotationSmoothed:NaN, _gpsUserMoving:false, _gpsSuspendUntil:0, _gpsProgrammaticMoveUntil:0, _gpsTrackCenter:null, _gpsLastLookaheadHeading:NaN, _lastGpsViewAt:0,
+  map:null, layers:{}, markerLayer:null, routeLayer:null, connectedLineLayer:null, utilityLayer:null, assetUtilityContextLayer:null, userMarker:null, gpsWatchId:null, gpsMode:'free', gpsProfile:'walking', gpsLast:null, gpsError:false, base:'street', satellite:false, drawing:false, drawToken:0, mapRenderer:null, currentDisplay:'none', currentCircuit:null, currentCircuits:[], currentCircuitRoutes:[], lastFullCircuitAssets:[], lastFullCircuitLabel:'', circuitDensityMode:'', gpsNearestCache:null, gpsPanelHidden:false, gpsPanelMinimized:false, gpsPendingLocateOnce:false, gpsInteractionTimer:null, gpsPingMarker:null, gpsPingTimer:null, measureLayer:null, measureMode:false, measurePoints:[], measureSnapEnabled:true, _lastMeasureInput:null, pinDropLayer:null, pinDropMarker:null, savedPinDropLayer:null, savedPinDropsVisible:true, pinDropHoldTimer:null, pinDropHoldMoved:false, breadcrumbLayer:null, breadcrumbEnabled:false, breadcrumbPoints:[], breadcrumbLastPoint:null, breadcrumbLastAt:0, gpsLastRaw:null, gpsRotateHeading:false, mapRotationDeg:0, _mapHeadingUsed:NaN, _mapRotationSmoothed:NaN, _gpsUserMoving:false, _gpsSuspendUntil:0, _gpsProgrammaticMoveUntil:0, _gpsTrackCenter:null, _gpsLastLookaheadHeading:NaN, _lastGpsViewAt:0,
   init(){
     if(!window.L){throw new Error('Leaflet failed to load. Check internet connection for map library.');}
     this.map=L.map('map',{zoomControl:false,preferCanvas:true}).setView([-31.9523,115.8613],10);
@@ -12,6 +12,7 @@ const MapEngine={
     this.routeLayer=L.layerGroup().addTo(this.map);
     this.connectedLineLayer=L.layerGroup().addTo(this.map);
     this.utilityLayer=L.layerGroup().addTo(this.map);
+    this.assetUtilityContextLayer=L.layerGroup().addTo(this.map);
     this.map.on('popupopen',ev=>{this.preparePopupScroll(ev);this.scheduleHeliPopupAutoClose(ev);});
     this.map.on('popupclose',()=>{try{this.map.dragging.enable();}catch(e){}});
     this.map.on('movestart zoomstart dragstart',()=>this.onGpsMapUserMovementStart());
@@ -61,19 +62,14 @@ const MapEngine={
     },0);
   },
   scheduleHeliPopupAutoClose(ev){
-    if(!(this.gpsProfile==='helicopter'||this.gpsMode==='track'))return;
+    // Dot popups stay open until the user closes them or opens another popup.
+    // The previous heli/track 3-second timer made field dot popups disappear while checking details.
     const popup=ev?.popup;
-    if(!popup)return;
-    try{clearTimeout(popup._mymapAutoCloseTimer);}catch(e){}
-    popup._mymapAutoCloseTimer=setTimeout(()=>{
-      try{
-        if(this.map&&this.map._popup===popup)this.map.closePopup(popup);
-        else popup.close?.();
-      }catch(e){}
-    },3000);
+    if(popup){try{clearTimeout(popup._mymapAutoCloseTimer);}catch(e){}}
+    return;
   },
   popupOptions(){
-    return {maxWidth:260,minWidth:150,autoPan:true,keepInView:false,autoPanPaddingTopLeft:[18,88],autoPanPaddingBottomRight:[18,34]};
+    return {maxWidth:260,minWidth:150,autoPan:true,keepInView:false,closeOnClick:false,autoClose:true,autoPanPaddingTopLeft:[18,88],autoPanPaddingBottomRight:[18,34]};
   },
   focusDot(a,marker,opts={}){
     if(!this.map)return;
@@ -118,15 +114,15 @@ const MapEngine={
     this.satellite=wanted==='satellite';
     document.querySelectorAll('[data-base-layer]').forEach(btn=>btn.classList.toggle('active',btn.dataset.baseLayer===wanted));
     this.updateMapLayerButton?.();
-    const label={street:'Street map',satellite:'Satellite',topo:'Topo'}[wanted]||wanted;
+    const label={street:'Normal',satellite:'Satellite',topo:'Topo'}[wanted]||wanted;
     UI?.toast?.(`${label} layer on`);
   },
   updateMapLayerButton(){
-    const btn=document.getElementById('mapLayerBtn');
+    const btn=document.getElementById('layersBtn')||document.getElementById('mapLayerBtn');
     const lab=document.getElementById('mapLayerLabel');
     const base=this.base||'street';
-    const short={street:'MAP',satellite:'SAT',topo:'TOPO'}[base]||'MAP';
-    const long={street:'Street',satellite:'Satellite',topo:'Topo'}[base]||'Map';
+    const short={street:'NORMAL',satellite:'SAT',topo:'TOPO'}[base]||'NORMAL';
+    const long={street:'Normal',satellite:'Satellite',topo:'Topo'}[base]||'Normal';
     if(lab)lab.textContent=short;
     if(btn){
       btn.title=`Map layer: ${long}`;
@@ -135,6 +131,7 @@ const MapEngine={
       btn.classList.toggle('satellite-active',base==='satellite');
       btn.classList.toggle('topo-active',base==='topo');
     }
+    document.querySelectorAll('[data-base-layer]').forEach(el=>el.classList.toggle('active',el.dataset.baseLayer===base));
   },
   cycleBase(){
     const order=['street','satellite','topo'];
@@ -156,6 +153,7 @@ const MapEngine={
     this.markerLayer?.clearLayers();
     this.routeLayer?.clearLayers();
     this.connectedLineLayer?.clearLayers();
+    this.assetUtilityContextLayer?.clearLayers();
     this.connectedLinesVisible=false; this.connectedLinesKey=''; this.connectedLinesList=[];
     UtilitiesEngine?.clear?.(false);
     HVCrossingsLayer?.clearActive?.({silent:true});
@@ -470,7 +468,7 @@ const MapEngine={
     for(const group of groups.values()){
       const arr=group.slice().sort(SearchEngine?.sortByStructure||(()=>0));
       let chunk=[]; let prev=null;
-      const flush=()=>{if(chunk.length>1){L.polyline(chunk,{weight:5,opacity:.34,color:'#1f6b36',interactive:false,lineCap:'round',lineJoin:'round'}).addTo(this.routeLayer);drawn++;} chunk=[];};
+      const flush=()=>{if(chunk.length>1){L.polyline(chunk,{weight:5,opacity:.34,color:'#d97a1d',interactive:false,lineCap:'round',lineJoin:'round'}).addTo(this.routeLayer);drawn++;} chunk=[];};
       for(const a of arr){
         const ll=this.assetLatLng(a); if(!ll)continue;
         if(prev){
@@ -492,6 +490,203 @@ const MapEngine={
     if(/^current map view|^What's here/i.test(text)&&Array.isArray(list)&&list.length>300)return 'canvas-dot';
     return 'dom-dot';
   },
+  isContextOnlyAsset(a){
+    try{
+      if(!a||typeof a!=='object')return false;
+      const raw=a.raw||{};
+      const kind=String(a.kind||raw.KIND||raw.kind||raw.asset_type||'').toLowerCase();
+      const file=String(a.sourceFile||a.sourcePath||raw.sourceFile||raw.SOURCE_FILE||'');
+      if(/^utility-/i.test(kind))return true;
+      if(String(raw.DRAW_CONTEXT_SIDECAR||'')==='1')return true;
+      if(Object.keys(raw).some(k=>/^UTILITY_CONTEXT_MODE$/i.test(k)))return true;
+      if(/POLE[_\s-]*DRAW[_\s-]*CONTEXT|FAST[_\s-]*CONTEXT|UTILITY[_\s-]*ROUTE[_\s-]*SNIPPETS/i.test(file))return true;
+    }catch(e){}
+    return false;
+  },
+  sourceLooksPublicPole(a){
+    try{
+      const raw=a?.raw||{};
+      const text=[a?.sourceFile,a?.sourcePath,raw.sourceFile,raw.SOURCE_FILE,raw.LAYER,raw.layer,raw.asset_type,raw.ASSET_TYPE].map(v=>String(v||'')).join(' ').toUpperCase();
+      if(/FAST[_\s-]*CONTEXT|POLE[_\s-]*DRAW[_\s-]*CONTEXT|UTILITY[_\s-]*ROUTE[_\s-]*SNIPPETS/.test(text))return true;
+      if(/TRANSMISSION[_\s-]*POLE[_\s-]*WP[_\s-]*030|WP[_\s-]*030|PUBLIC[_\s-]*(?:SECURE)?[_\s-]*GEOJSON|GDA2020[_\s-]*PUBLIC/.test(text))return true;
+    }catch(e){}
+    return false;
+  },
+  assetLinePoleDisplayKey(a,label=''){
+    try{
+      const cleanLine=(v)=>SearchEngine?.compact?SearchEngine.compact(SearchEngine.formatCircuitName?.(v||'')||v||''):String(v||'').toUpperCase().replace(/[^A-Z0-9]/g,'');
+      const cleanPole=(v)=>SearchEngine?.poleKey?SearchEngine.poleKey(v||''):String(v||'').toUpperCase().replace(/^0+/,'').replace(/[^A-Z0-9]/g,'');
+      const labelText=String(label||'').replace(/^circuit\s+/i,'').trim();
+      const labelLine=(this.isCircuitLabel?.(labelText)||this.isCircuitLabel?.(label))?cleanLine(labelText):'';
+      const refs=SearchEngine?.lineRefsForAsset?SearchEngine.lineRefsForAsset(a,true):[];
+      const candidates=[];
+      for(const r of refs||[]){
+        const l=cleanLine(r?.line||'');
+        const p=cleanPole(r?.pole||r?.structure||a?.poleNumber||a?.rawPole||'');
+        if(l&&p)candidates.push([l,p]);
+      }
+      const fl=cleanLine(a?.line||a?.rawLine||a?.raw?.LINE_NAME||a?.raw?.line||'');
+      const fp=cleanPole(a?.poleNumber||a?.rawPole||a?.pole||a?.raw?.NAMEPLATE_ID_1||a?.raw?.pole||'');
+      if(fl&&fp)candidates.push([fl,fp]);
+      if(!candidates.length)return '';
+      let chosen=labelLine?candidates.find(x=>x[0]===labelLine):null;
+      if(!chosen)chosen=candidates[0];
+      return chosen&&chosen[0]&&chosen[1]?`LP|${chosen[0]}|${chosen[1]}`:'';
+    }catch(e){return '';}
+  },
+  assetStructureSid(a){
+    try{return String(SearchEngine?.structureSid?SearchEngine.structureSid(a):(a?.structureId||a?.rawStructure||a?.raw?.STRUCTURE_ID||a?.raw?.structure_id||'')).toUpperCase().replace(/[^A-Z0-9]/g,'');}catch(e){return '';}
+  },
+  assetDistanceM(a,b){
+    try{
+      const lat1=Number(a?.lat),lon1=Number(a?.lon),lat2=Number(b?.lat),lon2=Number(b?.lon);
+      if(!Number.isFinite(lat1)||!Number.isFinite(lon1)||!Number.isFinite(lat2)||!Number.isFinite(lon2))return Infinity;
+      const R=6371000,toRad=n=>n*Math.PI/180,dLat=toRad(lat2-lat1),dLon=toRad(lon2-lon1);
+      const h=Math.sin(dLat/2)**2+Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLon/2)**2;
+      return 2*R*Math.asin(Math.min(1,Math.sqrt(h)));
+    }catch(e){return Infinity;}
+  },
+  drawDedupeRank(a){
+    try{
+      const raw=a?.raw||{};
+      let score=0;
+      if(!this.sourceLooksPublicPole(a))score+=1000; else score-=500;
+      if(this.isContextOnlyAsset(a))score-=5000;
+      const fields=raw&&typeof raw==='object'?Object.keys(raw).length:0;
+      score+=Math.min(fields,220);
+      const txt=[a?.label,a?.category,a?.sourceFile,raw.SOURCE_NAME,raw.sourceName].join(' ').toUpperCase();
+      if(/PRIVATE|FIELD[_\s-]*MAP|READY|NOMINAL|TOWER|POLE/.test(txt)&&!this.sourceLooksPublicPole(a))score+=120;
+      if(a?.routeCoords?.length)score-=40;
+      return score;
+    }catch(e){return 0;}
+  },
+  assetHasContextFields(a){
+    try{
+      const raw=a?.raw||{};
+      return Object.entries(raw).some(([k,v])=>/^(NEARBY_(?:HV|WATER|SEWER|RAIL|ESA|PETROLEUM|GAS)|UTILITY_(?:DETAIL|RADIUS|MARKUP|DRAWABLE|GEOM|POINT)|DRAW_CONTEXT_SIDECAR|UTILITY_CONTEXT_MODE)/i.test(k)&&String(v??'').trim()!==''&&!/^no\s+.+within/i.test(String(v??'')));
+    }catch(e){return false;}
+  },
+  assetDisplayDuplicateKey(a,label=''){
+    try{
+      const title=(window.PopupEngine?.displayTitle?PopupEngine.displayTitle(a):String(a?.label||a?.structure||a?.gisLabel||''));
+      const clean=v=>String(v||'').toUpperCase().replace(/^\s+|\s+$/g,'').replace(/0+(\d)/g,'$1').replace(/[^A-Z0-9]+/g,'');
+      const t=clean(title);
+      if(t&&/\d/.test(t))return 'T|'+t;
+      const lp=this.assetLinePoleDisplayKey(a,label);
+      if(lp)return 'L|'+clean(lp);
+      const raw=a?.raw||{};
+      const rough=[a?.line,a?.poleNumber,a?.rawPole,a?.rawStructure,raw.TRMSN_LINE_GIS_LABEL,raw.STRUCTURE_LABEL,raw.LINE_NAME,raw.NAMEPLATE_ID_1].filter(Boolean).join(' ');
+      const r=clean(rough);
+      return r&&/\d/.test(r)?'R|'+r:'';
+    }catch(e){return '';}
+  },
+  mergeDuplicateDrawAssets(items=[]){
+    try{
+      const arr=(items||[]).filter(Boolean);
+      if(!arr.length)return null;
+      arr.sort((a,b)=>this.drawDedupeRank(b)-this.drawDedupeRank(a));
+      const base=arr[0];
+      const merged={...base,raw:{...(base.raw||{})}};
+      const contextKey=/^(NEARBY_(?:HV|WATER|SEWER|RAIL|ESA|PETROLEUM|GAS)|UTILITY_(?:DETAIL|RADIUS|MARKUP|DRAWABLE|GEOM|POINT)|DRAW_CONTEXT_SIDECAR|UTILITY_CONTEXT_MODE|WATER_|SEWER_|RAIL_|ESA_|GAS_|PETROLEUM_)/i;
+      for(const a of arr){
+        const raw=a?.raw||{};
+        for(const [k,v] of Object.entries(raw)){
+          if(v===undefined||v===null||String(v).trim()==='')continue;
+          if(contextKey.test(k) || merged.raw[k]===undefined || merged.raw[k]===null || String(merged.raw[k]).trim()==='')merged.raw[k]=v;
+        }
+        if(!Number.isFinite(Number(merged.lat))&&Number.isFinite(Number(a.lat)))merged.lat=a.lat;
+        if(!Number.isFinite(Number(merged.lon))&&Number.isFinite(Number(a.lon)))merged.lon=a.lon;
+      }
+      merged.sourceFiles=Array.from(new Set(arr.flatMap(a=>[...(a.sourceFiles||[]),a.sourceFile].filter(Boolean))));
+      merged.sources=Array.from(new Set(arr.flatMap(a=>[...(a.sources||[]),a.sourceType].filter(Boolean))));
+      return merged;
+    }catch(e){return (items||[])[0]||null;}
+  },
+  finalDuplicateDotSweep(list=[],label=''){
+    try{
+      const src=(Array.isArray(list)?list:[]).filter(Boolean);
+      const out=[]; let hidden=0;
+      const closeLimit=12;
+      for(const a of src){
+        const key=this.assetDisplayDuplicateKey(a,label);
+        const sid=this.assetStructureSid(a);
+        const ctx=this.assetHasContextFields(a)||this.sourceLooksPublicPole(a)||this.isContextOnlyAsset(a);
+        let hit=null;
+        for(const c of out){
+          const rep=c.items[0];
+          const ckey=c.key||'';
+          const sameKey=key&&ckey&&key===ckey;
+          if(!sameKey)continue;
+          const d=c.items.reduce((best,x)=>Math.min(best,this.assetDistanceM(a,x)),Infinity);
+          if(!Number.isFinite(d)||d>closeLimit)continue;
+          const repSid=c.sids.size===1?[...c.sids][0]:'';
+          const differentRealSid=sid&&repSid&&sid!==repSid;
+          const repCtx=c.contextLike;
+          // Keep genuine multi-pole structures when both records look like real/private pole records.
+          if(differentRealSid&&!ctx&&!repCtx&&d>0.8)continue;
+          if(d<=1.5 || ctx || repCtx || sameKey){hit=c;break;}
+        }
+        if(!hit){out.push({key,items:[a],sids:new Set(sid?[sid]:[]),contextLike:ctx});}
+        else{hit.items.push(a); if(sid)hit.sids.add(sid); hit.contextLike=hit.contextLike||ctx; hidden++;}
+      }
+      const merged=out.map(c=>c.items.length>1?this.mergeDuplicateDrawAssets(c.items):c.items[0]).filter(Boolean);
+      if(hidden)Diagnostics?.log?.('Final duplicate dot sweep',`${hidden} duplicate dot(s) merged for ${label||'map'}`);
+      return merged;
+    }catch(e){Diagnostics?.log?.('Final dot de-dupe skipped',String(e?.message||e));return Array.isArray(list)?list:[];}
+  },
+  dedupeVisibleAssetDots(list=[],label=''){
+    try{
+      const src=(Array.isArray(list)?list:[]).filter(a=>a&&!this.isContextOnlyAsset(a));
+      const keyed=new Map(), noKey=[];
+      src.forEach((a,idx)=>{a.__drawOrder=idx; const k=this.assetLinePoleDisplayKey(a,label); if(!k){noKey.push(a);return;} if(!keyed.has(k))keyed.set(k,[]); keyed.get(k).push(a);});
+      const out=noKey.slice();
+      let hidden=0;
+      for(const arr0 of keyed.values()){
+        if(arr0.length===1){out.push(arr0[0]);continue;}
+        const privateLike=arr0.filter(a=>!this.sourceLooksPublicPole(a)&&!this.isContextOnlyAsset(a));
+        let arr=arr0;
+        if(privateLike.length){
+          arr=arr0.filter(a=>{
+            if(!this.sourceLooksPublicPole(a)&&!this.assetHasContextFields(a))return true;
+            const near=privateLike.some(p=>this.assetDistanceM(a,p)<=40);
+            if(near)hidden++;
+            return !near;
+          });
+          // Preserve utility/context fields from hidden public/context copies on the private winner.
+          for(const p of privateLike){
+            const same=arr0.filter(x=>x!==p&&this.assetDistanceM(x,p)<=40&&(this.sourceLooksPublicPole(x)||this.assetHasContextFields(x)));
+            if(same.length){const m=this.mergeDuplicateDrawAssets([p,...same]); if(m)Object.assign(p,m);}
+          }
+        }
+        const clusters=[];
+        for(const a of arr){
+          const sid=this.assetStructureSid(a);
+          let hit=null;
+          for(const c of clusters){
+            const csid=c.sid||'';
+            const sameSid=sid&&csid&&sid===csid;
+            const close=c.items.some(x=>this.assetDistanceM(a,x)<=1.2);
+            if(sameSid||close){hit=c;break;}
+          }
+          if(!hit){hit={sid:sid||'',items:[]};clusters.push(hit);}
+          hit.items.push(a);
+        }
+        for(const c of clusters){
+          if(c.items.length===1){out.push(c.items[0]);continue;}
+          hidden+=c.items.length-1;
+          out.push(this.mergeDuplicateDrawAssets(c.items));
+        }
+      }
+      let finalOut=this.finalDuplicateDotSweep(out,label);
+      finalOut.sort((a,b)=>(Number(a.__drawOrder)||0)-(Number(b.__drawOrder)||0));
+      for(const a of finalOut){try{delete a.__drawOrder;}catch(e){}}
+      if(hidden&&String(label||'').toLowerCase()!==String(this._lastDedupeLabel||'').toLowerCase()){
+        this._lastDedupeLabel=label;
+        Diagnostics?.log?.('Hidden duplicate asset dots',`${hidden} duplicate public/context dot(s) hidden for ${label||'map'}`);
+      }
+      return finalOut;
+    }catch(e){Diagnostics?.log?.('Dot de-dupe skipped',String(e?.message||e));return Array.isArray(list)?list:[];}
+  },
   async drawAssets(assets,label='search results',fit=true,opts={}){
     if(!this.drawAllowed(label)){
       Diagnostics?.log?.('Blocked non-explicit map draw',label);
@@ -502,15 +697,17 @@ const MapEngine={
     if(App.safeMode && !/^asset search result$/i.test(String(label||''))){UI.toast('Safe Mode is on. Circuit/bulk map drawing is blocked.'); return 0;}
     const token=++this.drawToken;
     this.markerLayer.clearLayers();
+    this.assetUtilityContextLayer?.clearLayers();
     App.drawnMarkers=0;
     UI.refreshCounts?.();
-    const baseList=(assets||[]).filter(a=>SearchEngine.passesFilters(a)&&Number.isFinite(Number(a.lat))&&Number.isFinite(Number(a.lon))&&a.kind!=='circuit'&&!UtilitiesEngine?.isUtility?.(a));
+    const baseListRaw=(assets||[]).filter(a=>SearchEngine.passesFilters(a)&&Number.isFinite(Number(a.lat))&&Number.isFinite(Number(a.lon))&&a.kind!=='circuit'&&!this.isContextOnlyAsset(a)&&!UtilitiesEngine?.isUtility?.(a)&&!SearchEngine?.isUtilityAsset?.(a));
+    const baseList=this.dedupeVisibleAssetDots(baseListRaw,label);
     const drawBase=this.filteredAssetsForZoom(baseList,label);
     this.prepareMapDotOffsets(drawBase);
     const list=opts.viewportFirst?this.orderAssetsForViewport(drawBase):drawBase;
     this.lastDrawnAssets=drawBase;
     const mode=this.markerModeFor(label,drawBase);
-    const batch=mode==='canvas-dot'?(drawBase.length>1000?75:95):(drawBase.length>600?90:140);
+    const batch=mode==='canvas-dot'?(drawBase.length>1000?48:64):(drawBase.length>600?52:78);
     this.drawing=true;
     this.currentDisplay=label;
     let drawn=0;
@@ -586,6 +783,8 @@ const MapEngine={
       const icon=L.divIcon({className:'',html,iconSize,iconAnchor,popupAnchor:[0,-12]});
       m=L.marker(ll,{icon,riseOnHover:true,title:PopupEngine.displayTitle(a)}).bindPopup(()=>PopupEngine.assetHtml(a),this.popupOptions());
     }
+    // v3.1.180: do not auto-draw utility snippets while opening a circuit/popup.
+    // The popup button still draws nearby utility/cable context on demand.
     m.on('click',()=>{App.selectedAsset=a; setTimeout(()=>this.refitOpenPopup(),80); setTimeout(()=>HVCrossingsLayer?.showBayForAsset?.(a,{silent:true}),120);});
     m.on('popupopen',()=>{App.selectedAsset=a; setTimeout(()=>UtilitiesEngine?.refreshAssetBadgePanel?.(a),40); setTimeout(()=>this.refitOpenPopup(),80);});
     this.markerLayer.addLayer(m);
@@ -715,7 +914,7 @@ const MapEngine={
   async showCircuit(line,opts={}){
     if(App.safeMode){UI.toast('Safe Mode is on. Circuit drawing blocked; search results still work.'); return;}
     const all=SearchEngine.lineAssets(line);
-    const sortedConfirmed=all.filter(a=>Number.isFinite(a.lat)&&Number.isFinite(a.lon)&&a.kind!=='circuit'&&!UtilitiesEngine?.isUtility?.(a)).sort(SearchEngine.sortByStructure);
+    const sortedConfirmed=all.filter(a=>Number.isFinite(a.lat)&&Number.isFinite(a.lon)&&a.kind!=='circuit'&&!UtilitiesEngine?.isUtility?.(a)&&!SearchEngine?.isUtilityAsset?.(a)).sort(SearchEngine.sortByStructure);
     const inferredMissing=this.inferMissingCircuitDots(line,sortedConfirmed);
     const sorted=[...sortedConfirmed,...inferredMissing].sort(SearchEngine.sortByStructure);
     const routes=SearchEngine.lineCircuitAssets?SearchEngine.lineCircuitAssets(line):[];
@@ -724,6 +923,7 @@ const MapEngine={
     this.currentCircuitRoutes=routes||[];
     this.routeLayer.clearLayers();
     this.connectedLineLayer?.clearLayers();
+    this.assetUtilityContextLayer?.clearLayers();
     this.connectedLinesVisible=false; this.connectedLinesKey=''; this.connectedLinesList=[];
     this.markerLayer.clearLayers();
     App.drawnMarkers=0;
@@ -763,6 +963,7 @@ const MapEngine={
     this.currentCircuits=cleaned.slice();
     this.routeLayer.clearLayers();
     this.connectedLineLayer?.clearLayers();
+    this.assetUtilityContextLayer?.clearLayers();
     this.connectedLinesVisible=false; this.connectedLinesKey=''; this.connectedLinesList=[];
     this.markerLayer.clearLayers();
     App.drawnMarkers=0;
@@ -772,7 +973,7 @@ const MapEngine={
     let inferredCount=0;
     for(const line of cleaned){
       const all=SearchEngine.lineAssets(line);
-      const confirmed=all.filter(a=>Number.isFinite(a.lat)&&Number.isFinite(a.lon)&&a.kind!=='circuit'&&!UtilitiesEngine?.isUtility?.(a)).sort(SearchEngine.sortByStructure);
+      const confirmed=all.filter(a=>Number.isFinite(a.lat)&&Number.isFinite(a.lon)&&a.kind!=='circuit'&&!UtilitiesEngine?.isUtility?.(a)&&!SearchEngine?.isUtilityAsset?.(a)).sort(SearchEngine.sortByStructure);
       const inferred=this.inferMissingCircuitDots(line,confirmed);
       inferredCount+=inferred.length;
       allAssets.push(...confirmed,...inferred);
@@ -811,7 +1012,7 @@ const MapEngine={
     for(const r of routes||[]){
       if(!Array.isArray(r.routeCoords)||r.routeCoords.length<2)continue;
       if(App.safeMode)continue;
-      const line=L.polyline(r.routeCoords,{weight:4,opacity:.78,color:'#1f3b25'});
+      const line=L.polyline(r.routeCoords,{weight:4,opacity:.78,color:'#e88921'});
       line.bindPopup(()=>PopupEngine.assetHtml(r),this.popupOptions());
       this.routeLayer.addLayer(line);
       count++;
@@ -838,6 +1039,211 @@ const MapEngine={
     if(kind==='substation'||kind==='terminal'||refKind==='terminal')return true;
     if(/SUBSTATION|SUBSTN|TERMINAL|SWITCHYARD|ZONE SUB|\bZONE\b|\bSUB\b|\bTER\b/.test(text))return true;
     if((raw.ABBREVIATION||raw.abbreviation||raw.ABBR||raw.abbr||raw.CODE||raw.code||raw.SUBSTATION_CODE||raw.TERMINAL_CODE||raw.STATION_CODE||raw.SITE_CODE)&&(raw.SUBSTATION||raw.SUBSTATION_NAME||raw.TERMINAL||raw.TERMINAL_NAME||raw.SEARCH_FIELD||raw.NAME||raw.TITLE))return true;
+    return false;
+  },
+  utilityContextRawHasContext(r){
+    try{
+      const re=/^(NEARBY_(?:HV(?:_CABLE)?|WATER|SEWER|RAIL|ESA|PETROLEUM|GAS)_|UTILITY_(?:DETAIL|RADIUS|MARKUP|DRAWABLE|GEOM|POINT)_)/i;
+      return !!r&&Object.entries(r||{}).some(([k,v])=>re.test(k)&&String(v??'').trim()!==''&&!/^no\s+.+within/i.test(String(v??'')));
+    }catch(e){return false;}
+  },
+  utilityContextLookupKeys(a){
+    const keys=[]; const add=(k)=>{k=String(k||'').trim(); if(k&&!keys.includes(k))keys.push(k);};
+    try{
+      const cleanLine=(v)=>SearchEngine?.compact?SearchEngine.compact(SearchEngine.formatCircuitName?.(v||'')||v||''):String(v||'').toUpperCase().replace(/[^A-Z0-9]/g,'');
+      const cleanPole=(v)=>SearchEngine?.poleKey?SearchEngine.poleKey(v||''):String(v||'').replace(/^0+/,'');
+      const refs=(SearchEngine?.lineRefsForAsset?SearchEngine.lineRefsForAsset(a,true):[]);
+      for(const r of refs){const l=cleanLine(r.line), p=cleanPole(r.pole||a?.poleNumber); if(l&&p)add('LP|'+l+'|'+p);}
+      if(a?.line&&a?.poleNumber){const l=cleanLine(a.line), p=cleanPole(a.poleNumber); if(l&&p)add('LP|'+l+'|'+p);}
+      const sid=SearchEngine?.structureSid?SearchEngine.structureSid(a):String(a?.rawStructure||a?.raw?.structure_id||a?.raw?.STRUCTURE_ID||a?.structureId||'').trim();
+      if(sid)add('SID|'+String(sid).toUpperCase().replace(/[^A-Z0-9]/g,''));
+    }catch(e){}
+    return keys;
+  },
+  buildUtilityContextIndex(){
+    const idx=new Map(); const assets=Array.isArray(App?.assets)?App.assets:[];
+    const add=(k,a)=>{if(!k||!a)return; const arr=idx.get(k)||[]; if(arr.length<8)arr.push(a); idx.set(k,arr);};
+    for(const a of assets){
+      try{if(!a||!this.utilityContextRawHasContext(a.raw||{}))continue; for(const k of this.utilityContextLookupKeys(a))add(k,a);}catch(e){}
+    }
+    this.utilityContextIndex=idx; this.utilityContextIndexSize=assets.length;
+    return idx;
+  },
+  invalidateUtilityContextIndex(){this.utilityContextIndex=null; this.utilityContextIndexSize=0;},
+  lookupUtilityContextAsset(a){
+    try{
+      const assets=Array.isArray(App?.assets)?App.assets:[];
+      const idx=(this.utilityContextIndex&&this.utilityContextIndexSize===assets.length)?this.utilityContextIndex:this.buildUtilityContextIndex();
+      const keys=this.utilityContextLookupKeys(a);
+      let best=null,bestScore=Infinity;
+      const lat=Number(a?.lat), lon=Number(a?.lon);
+      const hasGeom=(b)=>{
+        const r=b?.raw||{};
+        return Object.entries(r).some(([k,v])=>/^UTILITY_(?:GEOM|POINT)_/i.test(k)&&String(v??'').trim());
+      };
+      const isSidecar=(b)=>String(b?.kind||b?.raw?.KIND||b?.raw?.kind||'').toLowerCase()==='utility-draw-context';
+      const dist=(b)=>{
+        const lat2=Number(b?.lat),lon2=Number(b?.lon);
+        if(!Number.isFinite(lat)||!Number.isFinite(lon)||!Number.isFinite(lat2)||!Number.isFinite(lon2))return 0;
+        const R=6371000,toRad=n=>n*Math.PI/180,dLat=toRad(lat2-lat),dLon=toRad(lon2-lon);
+        const h=Math.sin(dLat/2)**2+Math.cos(toRad(lat))*Math.cos(toRad(lat2))*Math.sin(dLon/2)**2;
+        return 2*R*Math.asin(Math.min(1,Math.sqrt(h)));
+      };
+      const seen=new Set();
+      for(const k of keys){
+        for(const b of (idx.get(k)||[])){
+          if(!b||b===a||seen.has(b))continue; seen.add(b);
+          const d=dist(b);
+          if(!(d<=45||!Number.isFinite(d)))continue;
+          // Prefer the sidecar record containing a real drawable snippet over a plain context-only pole.
+          let score=(Number.isFinite(d)?d:0);
+          if(hasGeom(b))score-=10000;
+          if(isSidecar(b))score-=1000;
+          if(score<bestScore){best=b;bestScore=score;}
+        }
+      }
+      if(best)return best;
+    }catch(e){}
+    return null;
+  },
+  utilityContextTypesForAsset(a){
+    let raw=a?.raw||{};
+    const contextKeyRe=/^(NEARBY_(?:HV(?:_CABLE)?|WATER|SEWER|RAIL|ESA|PETROLEUM|GAS)_|UTILITY_(?:DETAIL|RADIUS|MARKUP|DRAWABLE|GEOM|POINT)_)/i;
+    const rawHasContext=(r)=>!!r&&Object.entries(r||{}).some(([k,v])=>contextKeyRe.test(k)&&String(v??'').trim()!==''&&!/^no\s+.+within/i.test(String(v??'')));
+    const candidateDistanceM=(x,y)=>{
+      try{
+        const lat1=Number(x?.lat),lon1=Number(x?.lon),lat2=Number(y?.lat),lon2=Number(y?.lon);
+        if(!Number.isFinite(lat1)||!Number.isFinite(lon1)||!Number.isFinite(lat2)||!Number.isFinite(lon2))return Infinity;
+        const R=6371000,toRad=n=>n*Math.PI/180,dLat=toRad(lat2-lat1),dLon=toRad(lon2-lon1);
+        const h=Math.sin(dLat/2)**2+Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLon/2)**2;
+        return 2*R*Math.asin(Math.min(1,Math.sqrt(h)));
+      }catch(e){return Infinity;}
+    };
+    const contextFallbackRaw=()=>{
+      try{
+        if(rawHasContext(raw))return raw;
+        // v3.1.180: indexed lookup instead of scanning every imported asset for every dot/popup.
+        const best=this.lookupUtilityContextAsset?.(a);
+        if(best&&rawHasContext(best.raw||{})){const merged={...(best.raw||{}),...(raw||{})}; for(const [k,v] of Object.entries(best.raw||{})){if(/^UTILITY_(?:GEOM|POINT)_/i.test(k)&&String(v??'').trim())merged[k]=v;} return merged;}
+      }catch(e){}
+      return raw;
+    };
+    raw=contextFallbackRaw();
+    const clean=(v)=>String(v??'').replace(/^\uFEFF/,'').trim();
+    const rawVal=(key)=>{
+      for(const [k,v] of Object.entries(raw)){if(k.toUpperCase()===key.toUpperCase()&&clean(v))return clean(v);}
+      return '';
+    };
+    const isNo=(v)=>/^\s*no\s+/i.test(clean(v));
+    const fmtDist=(v,fallback='')=>{
+      const n=Number(String(v||'').replace(/[^0-9.\-]/g,''));
+      if(Number.isFinite(n))return `${Math.round(n*10)/10} m`;
+      return fallback||clean(v);
+    };
+    const out=[];
+    const add=(type,label,short,color,distKey,summaryKey,extraKeys=[],fallbackRadius=15,geomKey='',pointKey='')=>{
+      const dist=rawVal(distKey);
+      const status=rawVal(distKey.replace(/_DISTANCE_M$/i,'_STATUS'));
+      const summary=rawVal(summaryKey);
+      if((!dist&&!summary)||isNo(status)||isNo(summary))return;
+      const detailParts=[];
+      if(summary)detailParts.push(summary);
+      for(const key of extraKeys){const v=rawVal(key); if(v&&!detailParts.some(x=>x===v))detailParts.push(v);}
+      const num=Number(String(dist||'').replace(/[^0-9.\-]/g,''));
+      out.push({type,label,short,color,distanceM:Number.isFinite(num)?num:fallbackRadius,distanceLabel:dist?fmtDist(dist):status||`within ${fallbackRadius} m`,detail:detailParts.slice(0,3).join(' · '),fallbackRadius,geomText:geomKey?rawVal(geomKey):'',pointText:pointKey?rawVal(pointKey):''});
+    };
+    const hvDist=rawVal('NEARBY_HV_CABLE_DISTANCE_M');
+    const hvStatus=rawVal('NEARBY_HV_CABLE_STATUS');
+    if((hvDist||rawVal('NEARBY_HV_CABLE_KV')||rawVal('NEARBY_HV_CABLE_TYPE'))&&!isNo(hvStatus)){
+      const parts=[rawVal('NEARBY_HV_CABLE_KV'),rawVal('NEARBY_HV_CABLE_PHASES'),rawVal('NEARBY_HV_CABLE_TYPE')||'HVUG',rawVal('NEARBY_HV_CABLE_NETWORK')].filter(Boolean);
+      const num=Number(String(hvDist||'').replace(/[^0-9.\-]/g,''));
+      out.push({type:'hvCable',label:'HV underground cable',short:'HVUG',color:'#7c3aed',distanceM:Number.isFinite(num)?num:15,distanceLabel:hvDist?fmtDist(hvDist):'within 15 m',detail:parts.join(' · '),fallbackRadius:15,geomText:rawVal('UTILITY_GEOM_HVUG'),pointText:''});
+    }
+    add('water','Water pipe','Water','#1976d2','NEARBY_WATER_DISTANCE_M','NEARBY_WATER_SUMMARY',['NEARBY_WATER_TYPE','NEARBY_WATER_NETWORK','NEARBY_WATER_SIZE','NEARBY_WATER_MATERIAL'],15,'UTILITY_GEOM_WATER');
+    add('sewer','Sewer pressure main','Sewer','#795548','NEARBY_SEWER_DISTANCE_M','NEARBY_SEWER_SUMMARY',['NEARBY_SEWER_MAIN','NEARBY_SEWER_DIAMETER','NEARBY_SEWER_MATERIAL'],15,'UTILITY_GEOM_SEWER');
+    add('railCorridor','Rail corridor','Rail','#111827','NEARBY_RAIL_CORRIDOR_DISTANCE_M','NEARBY_RAIL_CORRIDOR_SUMMARY',['NEARBY_RAIL_CORRIDOR_TYPE'],15,'UTILITY_GEOM_RAIL_CORRIDOR');
+    add('railCrossing','Rail crossing','Rail X','#111827','NEARBY_RAIL_CROSSING_DISTANCE_M','NEARBY_RAIL_CROSSING_SUMMARY',['NEARBY_RAIL_CROSSING_ROAD','NEARBY_RAIL_CROSSING_TYPE','NEARBY_RAIL_CROSSING_PROTECTION'],25,'','UTILITY_POINT_RAIL_CROSSING');
+    add('esa','Environmentally sensitive area','ESA','#2e7d32','NEARBY_ESA_DISTANCE_M','NEARBY_ESA_SUMMARY',['NEARBY_ESA_TYPE','NEARBY_ESA_FLAGS'],15);
+    add('petroleum','Petroleum/gas title area','Gas','#d97706','NEARBY_PETROLEUM_DISTANCE_M','NEARBY_PETROLEUM_SUMMARY',['NEARBY_PETROLEUM_NAME','NEARBY_PETROLEUM_HOLDER','NEARBY_PETROLEUM_PURPOSE'],15);
+    return out;
+  },
+  hasUtilityContext(a){return this.utilityContextTypesForAsset(a).length>0;},
+  showPopupAssetUtilityContext(token='',ev=null){
+    try{if(ev){ev.preventDefault?.();ev.stopPropagation?.();if(window.L?.DomEvent)try{L.DomEvent.stop(ev);}catch(_){}}}catch(_){ }
+    const raw=decodeURIComponent(String(token||''));
+    const a=(this.popupAssetRegistry&&this.popupAssetRegistry.get(raw))||(SearchEngine?.assetMap&&SearchEngine.assetMap.get(raw))||(App.assets||[]).find(x=>String(x?.id||'')===raw);
+    if(!a){UI?.toast?.('Asset target not found.');return false;}
+    this.showAssetUtilityContext(a,{silent:false,pan:true});
+    return false;
+  },
+  showAssetUtilityContext(a,opts={}){
+    if(!this.map||!window.L)return false;
+    if(!this.assetUtilityContextLayer)this.assetUtilityContextLayer=L.layerGroup().addTo(this.map);
+    this.assetUtilityContextLayer.clearLayers();
+    const ll=this.markerLatLng?.(a)||this.assetLatLng?.(a);
+    const list=this.utilityContextTypesForAsset(a);
+    if(!ll||!list.length){if(!opts.silent)UI?.toast?.('No nearby utility/cable context on this asset.'); return false;}
+    const latlng=L.latLng(ll[0],ll[1]);
+    const group=L.layerGroup().addTo(this.assetUtilityContextLayer);
+    const parseLine=(txt)=>{
+      txt=String(txt||'').trim(); if(!txt)return [];
+      return txt.split('|').map(seg=>seg.split(';').map(p=>{
+        const m=String(p||'').split(',').map(Number);
+        if(m.length<2||!Number.isFinite(m[0])||!Number.isFinite(m[1]))return null;
+        return [m[1],m[0]];
+      }).filter(Boolean)).filter(line=>line.length>=2);
+    };
+    const parsePoint=(txt)=>{
+      const m=String(txt||'').trim().split(',').map(Number);
+      return (m.length>=2&&Number.isFinite(m[0])&&Number.isFinite(m[1]))?[m[1],m[0]]:null;
+    };
+    let bounds=L.latLngBounds([latlng]);
+    let drewGeom=false;
+    const nearestPoint=(line)=>{
+      let best=null,bd=Infinity;
+      for(const p of line||[]){
+        try{const d=latlng.distanceTo(L.latLng(p[0],p[1])); if(d<bd){bd=d;best=p;}}catch(_){ }
+      }
+      return best;
+    };
+    list.slice(0,8).forEach((c)=>{
+      const color=c.color||'#1e6fb7';
+      const lines=parseLine(c.geomText);
+      if(lines.length){
+        lines.slice(0,4).forEach(line=>{
+          try{L.polyline(line,{color:'#fffaf0',weight:10,opacity:.96,interactive:false}).addTo(group);}catch(_){ }
+          try{L.polyline(line,{color,weight:5.5,opacity:.98,dashArray:c.type==='railCorridor'?'8 5':'',interactive:false}).addTo(group);}catch(_){ }
+          const near=nearestPoint(line);
+          if(near){
+            try{L.polyline([latlng,near],{color,weight:2,opacity:.85,dashArray:'2 6',interactive:false}).addTo(group);}catch(_){ }
+          }
+          try{line.forEach(p=>bounds.extend(p));}catch(_){ }
+        });
+        drewGeom=true;
+      }
+      const pt=parsePoint(c.pointText);
+      if(pt){
+        try{L.polyline([latlng,pt],{color,weight:2,opacity:.85,dashArray:'2 6',interactive:false}).addTo(group);}catch(_){ }
+        try{L.circleMarker(pt,{radius:10,color:'#fffaf0',weight:4,fill:true,fillOpacity:.95,interactive:false}).addTo(group);}catch(_){ }
+        try{L.circleMarker(pt,{radius:6,color,weight:3,fill:true,fillOpacity:.95,interactive:false}).addTo(group);}catch(_){ }
+        try{bounds.extend(pt);}catch(_){ }
+        drewGeom=true;
+      }
+    });
+    try{L.circleMarker(latlng,{radius:8,color:'#fffaf0',weight:4,opacity:1,fill:true,fillOpacity:.85,interactive:false}).addTo(group);}catch(_){ }
+    try{L.circleMarker(latlng,{radius:5,color:'#1f5b2d',weight:2,opacity:1,fill:true,fillOpacity:.95,interactive:false}).addTo(group);}catch(_){ }
+    const esc=(v)=>String(v??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+    const chips=list.slice(0,8).map(c=>`<span style="border-color:${esc(c.color||'#1e6fb7')};"><b>${esc(c.short||c.label)}</b>${c.distanceLabel?` ${esc(c.distanceLabel)}`:''}${c.geomText||c.pointText?' · route':' · info only'}</span>`).join('');
+    const sub=drewGeom?'Exact nearby route snippets shown':'Info only - no drawable route snippet imported for this context';
+    const html=`<div class="utility-context-callout"><div><b>Nearby utilities / cables</b><button type="button" onclick="window.MapEngine?.clearAssetUtilityContext?.(event)">×</button></div><div style="font-size:10.5px;font-weight:850;opacity:.78;margin:-2px 0 6px">${esc(sub)}</div><div class="utility-context-chips">${chips}</div></div>`;
+    try{L.marker(latlng,{icon:L.divIcon({className:'utility-context-icon',html,iconSize:[235,104],iconAnchor:[118,118]}),interactive:true,zIndexOffset:7200}).addTo(group);}catch(_){ }
+    if(opts.pan){try{if(drewGeom&&bounds?.isValid?.())this.map.fitBounds(bounds.pad(.30),{maxZoom:19,animate:true,duration:.18});else this.map.panTo(latlng,{animate:true,duration:.18});}catch(_){ }}
+    if(!opts.silent)UI?.toast?.(drewGeom?'Utility route snippet shown.':'Utility context shown.');
+    return true;
+  },
+  clearAssetUtilityContext(ev=null){
+    try{if(ev){ev.preventDefault?.();ev.stopPropagation?.();}}catch(_){ }
+    this.assetUtilityContextLayer?.clearLayers();
     return false;
   },
   registerPopupAsset(a){
@@ -1023,6 +1429,7 @@ const MapEngine={
     this.markerLayer?.clearLayers();
     this.routeLayer?.clearLayers();
     this.connectedLineLayer?.clearLayers();
+    this.assetUtilityContextLayer?.clearLayers();
     this.connectedLinesVisible=false; this.connectedLinesKey=''; this.connectedLinesList=[];
     UtilitiesEngine?.clear?.(false);
     HVCrossingsLayer?.clearActive?.({silent:true});
@@ -1055,6 +1462,7 @@ const MapEngine={
     const list=refSource.filter(a=>{
       if(!a||!Number.isFinite(Number(a.lat))||!Number.isFinite(Number(a.lon)))return false;
       const k=SearchEngine?.referenceKind?SearchEngine.referenceKind(a):String(a.kind||'').toLowerCase();
+      if(this.passesAssetLayers&&this.passesAssetLayers(a)===false)return false;
       if(want==='depot')return k==='depot';
       return k==='substation'||k==='terminal';
     }).sort((a,b)=>this.referenceTitle(a).localeCompare(this.referenceTitle(b),undefined,{numeric:true,sensitivity:'base'}));
@@ -1653,7 +2061,7 @@ const MapEngine={
     const assets=[];
     const addAsset=(a)=>{
       if(!a||!Number.isFinite(Number(a.lat))||!Number.isFinite(Number(a.lon)))return;
-      if(a.kind==='circuit'||UtilitiesEngine?.isUtility?.(a))return;
+      if(a.kind==='circuit'||UtilitiesEngine?.isUtility?.(a)||SearchEngine?.isUtilityAsset?.(a))return;
       const id=String(a.id||a.assetId||a.globalId||`${a.lat},${a.lon},${assets.length}`);
       if(seenAsset.has(id))return;
       if(!this.connectedAssetMatchesExactLine?.(a,line))return;
@@ -1937,7 +2345,7 @@ const MapEngine={
     const raw=(SearchEngine?.assetsInBounds?SearchEngine.assetsInBounds(b):(App.assets||[]).filter(a=>Number.isFinite(Number(a?.lat))&&Number.isFinite(Number(a?.lon))&&b.contains([a.lat,a.lon])));
     const visible=[]; const hidden=[]; const seen=new Set();
     for(const a of raw||[]){
-      if(!a||a.kind==='circuit'||UtilitiesEngine?.isUtility?.(a))continue;
+      if(!a||a.kind==='circuit'||UtilitiesEngine?.isUtility?.(a)||SearchEngine?.isUtilityAsset?.(a)||SearchEngine?.isUtilityAsset?.(a))continue;
       if(!Number.isFinite(Number(a.lat))||!Number.isFinite(Number(a.lon)))continue;
       const id=SearchEngine?.assetStableId?SearchEngine.assetStableId(a):String(a.id||a.assetId||`${a.lat},${a.lon},${a.label||''}`);
       if(seen.has(id))continue; seen.add(id);
@@ -2031,6 +2439,20 @@ const MapEngine={
       btn.dataset.gpsProfileBound='1';
       btn.addEventListener('click',ev=>{ev.preventDefault();ev.stopPropagation();ev.stopImmediatePropagation?.();this.setGpsProfile(btn.dataset.gpsProfile||btn.dataset.toolsGpsProfile||'walking');},{capture:true,passive:false});
     });
+    const profileSelect=document.getElementById('gpsProfileSelect');
+    if(profileSelect&&profileSelect.dataset.gpsProfileBound!=='1'){
+      profileSelect.dataset.gpsProfileBound='1';
+      profileSelect.addEventListener('change',ev=>{this.setGpsProfile(ev.target.value||'walking');},{passive:true});
+    }
+    const actionSelect=document.getElementById('gpsActionSelect');
+    if(actionSelect&&actionSelect.dataset.gpsActionBound!=='1'){
+      actionSelect.dataset.gpsActionBound='1';
+      actionSelect.addEventListener('change',ev=>{
+        const v=ev.target.value||'free';
+        if(v==='free')this.locate();
+        else this.setGpsMode(v,{toast:true,showPanel:true});
+      },{passive:true});
+    }
   },
   bindRotatedMapDragFix(){
     if(this._rotatedMapDragFixBound||!this.map)return;
@@ -2251,11 +2673,17 @@ const MapEngine={
       btn.classList.toggle('active',v===p);
     });
     const lab=document.getElementById('gpsProfileLabel');
-    if(lab)lab.textContent=`${this.gpsProfileLabel(p)} GPS`;
+    if(lab)lab.textContent='Patrol';
+    const profileSelect=document.getElementById('gpsProfileSelect');
+    if(profileSelect&&profileSelect.value!==p)profileSelect.value=p;
+    const actionSelect=document.getElementById('gpsActionSelect');
+    if(actionSelect&&actionSelect.value!==this.gpsMode)actionSelect.value=this.gpsMode||'free';
+    const status=document.getElementById('gpsStatus');
+    if(status)status.textContent=this.gpsModeLabel();
     const followBtn=document.getElementById('gpsFollowModeBtn');
     if(followBtn){followBtn.textContent='Follow';followBtn.classList.toggle('active',this.gpsMode==='follow');}
     const trackBtn=document.getElementById('gpsTrackModeBtn');
-    if(trackBtn){trackBtn.textContent='Tracking/Heli';trackBtn.classList.toggle('active',this.gpsMode==='track');}
+    if(trackBtn){trackBtn.textContent='Track';trackBtn.classList.toggle('active',this.gpsMode==='track');}
     const locateBtn=document.getElementById('gpsLocateModeBtn');
     if(locateBtn){locateBtn.textContent='Locate';locateBtn.classList.toggle('active',this.gpsMode==='free');}
     const rotateBtn=document.getElementById('gpsRotateModeBtn');
@@ -2267,7 +2695,7 @@ const MapEngine={
     }
     const crumbBtn=document.getElementById('gpsBreadcrumbBtn');
     if(crumbBtn){
-      crumbBtn.textContent=this.breadcrumbEnabled?'Breadcrumb ON':'Breadcrumb OFF';
+      crumbBtn.textContent=this.breadcrumbEnabled?'Trail ON':'Trail OFF';
       crumbBtn.classList.toggle('active',!!this.breadcrumbEnabled);
       crumbBtn.setAttribute('aria-pressed',this.breadcrumbEnabled?'true':'false');
       crumbBtn.title=this.breadcrumbEnabled?'Breadcrumb trail is recording':'Start breadcrumb trail';
@@ -2287,13 +2715,34 @@ const MapEngine={
     btn.title='GPS locate — jump to current position, free scroll stays on';
     btn.setAttribute('aria-label',btn.title);
   },
+  gpsSignalClass(acc){
+    const n=Number(acc);
+    if(!Number.isFinite(n)||n<=0)return 'gps-none';
+    if(n<=10)return 'gps-strong';
+    if(n<=25)return 'gps-good';
+    if(n<=60)return 'gps-weak';
+    return 'gps-poor';
+  },
+  updateGpsMapStatus(){
+    const el=document.getElementById('gpsMapStatus');
+    if(!el)return;
+    const val=document.getElementById('gpsMapAccuracy');
+    const g=this.gpsLast;
+    const acc=Number(g?.accuracy);
+    const cls=this.gpsError?'gps-none':this.gpsSignalClass(acc);
+    el.classList.remove('gps-none','gps-strong','gps-good','gps-weak','gps-poor','active');
+    el.classList.add(cls);
+    if(g&&!this.gpsError)el.classList.add('active');
+    if(val)val.textContent=(g&&!this.gpsError&&Number.isFinite(acc))?`${Math.round(acc)} m`:'—';
+    el.title=(g&&!this.gpsError&&Number.isFinite(acc))?`GPS accuracy ${Math.round(acc)} m`:'GPS signal / accuracy';
+  },
   startGpsWatch(auto=false){
     this.loadGpsProfile();
     this.updateGpsButton();
     this.updateGpsProfileButtons();
     if(!this.gpsPanelHidden)this.showGpsPanel();
     if(this.gpsWatchId!==null)return;
-    if(!navigator.geolocation){this.gpsError=true; this.updateGpsButton(); if(!auto)UI.toast('GPS not available in this browser.'); return;}
+    if(!navigator.geolocation){this.gpsError=true; this.updateGpsButton(); this.updateGpsMapStatus(); if(!auto)UI.toast('GPS not available in this browser.'); return;}
     const icon=L.divIcon({className:'',html:'<div class="user-dot"></div>',iconSize:[22,22],iconAnchor:[11,11]});
     const update=pos=>{
       const lat=Number(pos.coords.latitude), lon=Number(pos.coords.longitude);
@@ -2325,7 +2774,8 @@ const MapEngine={
       else this.applyGpsModeView(ll);
       const acc=Math.round(pos.coords.accuracy||0);
       const status=document.getElementById('gpsStatus');
-      if(status)status.textContent=`GPS ${acc?`${acc}m ${this.gpsSignalLabel(acc)}`:'—'}`;
+      if(status)status.textContent=this.gpsModeLabel();
+      this.updateGpsMapStatus();
       const arrow=document.querySelector('#gpsFollow .gps-arrow-icon');
       if(arrow&&Number.isFinite(stableHeading))arrow.style.transform=`rotate(${Number(stableHeading)}deg)`;
       this.updateMapRotationFromGps();
@@ -2337,7 +2787,8 @@ const MapEngine={
       this.updateGpsButton();
       if(!auto)UI.toast(`GPS failed: ${err.message}`);
       const status=document.getElementById('gpsStatus');
-      if(status)status.textContent='GPS —';
+      if(status)status.textContent='GPS unavailable';
+      this.updateGpsMapStatus();
     };
     this.gpsWatchId=navigator.geolocation.watchPosition(update,fail,{enableHighAccuracy:true,timeout:15000,maximumAge:this.gpsProfile==='helicopter'?750:1500});
   },
@@ -2670,7 +3121,7 @@ const MapEngine={
     const seen=new Set(); let best=null,bestM=Infinity;
     for(const pool of pools){
       for(const x of pool||[]){
-        if(!x||x.kind==='circuit'||UtilitiesEngine?.isUtility?.(x))continue;
+        if(!x||x.kind==='circuit'||UtilitiesEngine?.isUtility?.(x)||SearchEngine?.isUtilityAsset?.(x))continue;
         const lat=Number(x.lat), lon=Number(x.lon);
         if(!Number.isFinite(lat)||!Number.isFinite(lon))continue;
         const id=String(x.id||x.assetId||x.globalId||`${lat},${lon},${x.label||x.line||''}`);
@@ -2781,7 +3232,7 @@ const MapEngine={
     }
     const all=App.assets||[];
     if(all.length>60000)return [];
-    return all.filter(a=>a&&Number.isFinite(Number(a.lat))&&Number.isFinite(Number(a.lon))&&a.kind!=='circuit'&&!UtilitiesEngine?.isUtility?.(a));
+    return all.filter(a=>a&&Number.isFinite(Number(a.lat))&&Number.isFinite(Number(a.lon))&&a.kind!=='circuit'&&!UtilitiesEngine?.isUtility?.(a)&&!SearchEngine?.isUtilityAsset?.(a));
   },
   gpsNearestSummary(){
     const g=this.gpsLast;
@@ -2834,6 +3285,7 @@ const MapEngine={
   updateGpsPanel(pos){
     const g=this.gpsLast;
     this.updateGpsProfileButtons();
+    this.updateGpsMapStatus();
     if(!g)return;
     const speedMps=Number(g.speed);
     const kmh=Number.isFinite(speedMps)&&speedMps>=0?speedMps*3.6:NaN;
@@ -2846,12 +3298,10 @@ const MapEngine={
     set('gpsSpeedValue',speedText);
     set('gpsAltitudeValue',Number.isFinite(altitude)?`${Math.round(altitude)} m · ${Math.round(altitude*3.28084)} ft`:'—');
     set('gpsHeadingValue',Number.isFinite(heading)?`${Math.round(heading)}° · ${this.gpsCardinal(heading)}`:'—');
-    set('gpsAccuracyValue',Number.isFinite(acc)?`${Math.round(acc)} m · ${this.gpsSignalLabel(acc)}`:'—');
+    set('gpsAccuracyValue',Number.isFinite(acc)?`${Math.round(acc)} m`:'—');
     const status=document.getElementById('gpsStatus');
-    if(status){
-      const mode=this.gpsMode==='track'?'Tracking/Heli':this.gpsModeLabel();
-      status.textContent=`${mode} · ${Number.isFinite(acc)?Math.round(acc)+'m '+this.gpsSignalLabel(acc):'GPS'}`;
-    }
+    if(status)status.textContent=this.gpsMode==='track'?'Tracking':this.gpsModeLabel();
+    this.updateGpsMapStatus();
     const sum=this.gpsNearestSummary();
     const pingBtn=document.getElementById('gpsNearestPingBtn');
     if(sum?.nearest){
@@ -3079,7 +3529,7 @@ const MapEngine={
     const seen=new Set(), out=[];
     for(const pool of pools){
       for(const a of pool||[]){
-        if(!a||a.kind==='circuit'||!Number.isFinite(Number(a.lat))||!Number.isFinite(Number(a.lon))||UtilitiesEngine?.isUtility?.(a))continue;
+        if(!a||a.kind==='circuit'||!Number.isFinite(Number(a.lat))||!Number.isFinite(Number(a.lon))||UtilitiesEngine?.isUtility?.(a)||SearchEngine?.isUtilityAsset?.(a))continue;
         const id=String(a.id||a.assetId||a.globalId||`${a.lat},${a.lon},${a.label||''}`);
         if(seen.has(id))continue; seen.add(id);
         const m=this.distanceM(origin,{lat:Number(a.lat),lon:Number(a.lon)});
@@ -3198,6 +3648,38 @@ const MapEngine={
       setTimeout(()=>URL.revokeObjectURL(url),1500);
       UI?.toast?.('Saved pins export started.');
     }catch(e){UI?.toast?.('Export failed.');}
+  },
+  async saveSavedPinDropsAs(){
+    const arr=this.readSavedPinDrops();
+    if(!arr.length){UI?.toast?.('No saved pins to save.');return;}
+    const filename=`myMap-pin-drops-${new Date().toISOString().slice(0,10)}.json`;
+    const json=JSON.stringify(arr,null,2);
+    const blob=new Blob([json],{type:'application/json'});
+    try{
+      if(window.showSaveFilePicker){
+        const handle=await window.showSaveFilePicker({
+          suggestedName:filename,
+          types:[{description:'myMap pin drops JSON',accept:{'application/json':['.json']}}]
+        });
+        const writable=await handle.createWritable();
+        await writable.write(blob);
+        await writable.close();
+        UI?.toast?.('Saved pins file written.');
+        return;
+      }
+      if(navigator.share){
+        const file=new File([blob],filename,{type:'application/json'});
+        if(!navigator.canShare||navigator.canShare({files:[file]})){
+          await navigator.share({files:[file],title:'myMap pin drops'});
+          UI?.toast?.('Choose save/share location opened.');
+          return;
+        }
+      }
+    }catch(e){
+      if(String(e?.name||'')==='AbortError'){UI?.toast?.('Save cancelled.');return;}
+      try{console.warn('myMap save/share failed',e);}catch(_){}
+    }
+    this.exportSavedPinDrops();
   },
   handlePinDropAction(action,lat,lon,id=''){
     lat=Number(lat);lon=Number(lon);
@@ -3326,7 +3808,7 @@ const MapEngine={
     const out=[], seen=new Set();
     for(const pool of pools){
       for(const a of pool||[]){
-        if(!a||a.kind==='circuit'||UtilitiesEngine?.isUtility?.(a))continue;
+        if(!a||a.kind==='circuit'||UtilitiesEngine?.isUtility?.(a)||SearchEngine?.isUtilityAsset?.(a)||SearchEngine?.isUtilityAsset?.(a))continue;
         const lat=Number(a.lat), lon=Number(a.lon);
         if(!Number.isFinite(lat)||!Number.isFinite(lon))continue;
         const id=String(a.id||a.assetId||a.globalId||`${lat},${lon},${a.label||a.line||''}`);
@@ -3335,7 +3817,7 @@ const MapEngine={
     }
     if(!out.length&&Array.isArray(App.assets)&&App.assets.length<=70000){
       for(const a of App.assets){
-        if(!a||a.kind==='circuit'||UtilitiesEngine?.isUtility?.(a))continue;
+        if(!a||a.kind==='circuit'||UtilitiesEngine?.isUtility?.(a)||SearchEngine?.isUtilityAsset?.(a)||SearchEngine?.isUtilityAsset?.(a))continue;
         if(Number.isFinite(Number(a.lat))&&Number.isFinite(Number(a.lon)))out.push(a);
       }
     }
@@ -3736,5 +4218,2604 @@ try{window.MapEngine=MapEngine; window.fmConnectedBtn=(btn,ev)=>MapEngine.handle
     // DOM mode is needed for the numbered indicator bubbles. Keep it for normal-length circuits.
     if((/^circuit\s+/i.test(text)||/^multi-circuit$/i.test(text))&&Array.isArray(list)&&list.some(a=>a&&a._sampleMarkerNum)&&list.length<=1200)return 'dom-dot';
     return oldMarkerMode?oldMarkerMode.call(this,label,list):'dom-dot';
+  };
+})();
+
+
+/* myMap v3.1.131: debounce Android long-press/contextmenu and multi-touch save events so one hold/save creates one pin only. */
+(function(){
+  const ME=window.MapEngine;
+  if(!ME||ME._pinDropSingleGuardV131)return;
+  ME._pinDropSingleGuardV131=true;
+  const num=v=>{const n=Number(v);return Number.isFinite(n)?n:null;};
+  const meters=(a,b)=>{
+    const la=num(a?.lat), lo=num(a?.lng??a?.lon), lb=num(b?.lat), lob=num(b?.lng??b?.lon);
+    if(la===null||lo===null||lb===null||lob===null)return Infinity;
+    const dy=(la-lb)*111000;
+    const dx=(lo-lob)*111000*Math.cos(((la+lb)/2)*Math.PI/180);
+    return Math.sqrt(dx*dx+dy*dy);
+  };
+  const oldDrop=ME.dropHoldPin;
+  ME.dropHoldPin=function(ll,opts={}){
+    const now=Date.now();
+    const next={lat:num(ll?.lat),lng:num(ll?.lng??ll?.lon)};
+    if(next.lat===null||next.lng===null)return oldDrop?oldDrop.call(this,ll,opts):undefined;
+    if(this._lastPinDropAt&&now-this._lastPinDropAt<1800&&meters(this._lastPinDropLL,next)<30){
+      this._pinDropSuppressClickUntil=Date.now()+1200;
+      return null;
+    }
+    this._lastPinDropAt=now;
+    this._lastPinDropLL=next;
+    this._pinDropSuppressClickUntil=Date.now()+1200;
+    return oldDrop?oldDrop.call(this,ll,opts):undefined;
+  };
+  const oldSave=ME.savePinDrop;
+  ME.savePinDrop=function(lat,lon,comments='',existingId=''){
+    const now=Date.now();
+    const la=num(lat), lo=num(lon);
+    if(!existingId&&la!==null&&lo!==null){
+      const key=la.toFixed(6)+','+lo.toFixed(6)+'|'+String(comments||'').slice(0,80);
+      if(this._lastPinSaveKey===key&&now-(this._lastPinSaveAt||0)<2200)return null;
+      this._lastPinSaveKey=key;
+      this._lastPinSaveAt=now;
+    }
+    return oldSave?oldSave.call(this,lat,lon,comments,existingId):null;
+  };
+})();
+
+/* myMap v3.1.140: compact pin drop popup, no visible GPS row, nearest address, Google Earth button. */
+(function(){
+  const ME=window.MapEngine;
+  if(!ME||ME._pinPopupAddressEarthV139)return;
+  ME._pinPopupAddressEarthV139=true;
+  const esc=function(v){
+    try{return (window.UI&&UI.esc)?UI.esc(v):String(v??'').replace(/[&<>\"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#39;'}[c]));}
+    catch(e){return String(v??'');}
+  };
+  const q=function(v){return String(v??'').replace(/\\/g,'\\\\').replace(/'/g,"\\'");};
+  const num=function(v){const n=Number(v);return Number.isFinite(n)?n:null;};
+  const addrKey=function(lat,lon){return 'myMapNearestStreetAddress:v144:'+Number(lat).toFixed(5)+','+Number(lon).toFixed(5);};
+  const icon={
+    addr:'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10.5 12 4l8 6.5"/><path d="M6 9.5V20h12V9.5"/><path d="M9 20v-6h6v6"/></svg>',
+    cal:'<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="5" width="16" height="15" rx="2"/><path d="M8 3v4M16 3v4M4 10h16M8 14h.01M12 14h.01M16 14h.01M8 17h.01M12 17h.01M16 17h.01"/></svg>',
+    net:'<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="7" r="2"/><circle cx="18" cy="7" r="2"/><circle cx="12" cy="18" r="2"/><path d="M8 8.5l3 7M16 8.5l-3 7M8 7h8"/></svg>',
+    ext:'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h6v6M20 4L10 14"/><path d="M12 6H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6"/></svg>',
+    earth:'<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3.6 9h16.8M3.6 15h16.8M12 3a13 13 0 0 1 0 18M12 3a13 13 0 0 0 0 18"/></svg>',
+    target:'<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4M5 5l2.7 2.7M16.3 16.3L19 19M19 5l-2.7 2.7M7.7 16.3L5 19"/></svg>',
+    save:'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h12l2 2v14H5z"/><path d="M8 4v6h8V4M8 20v-6h8v6"/></svg>',
+    trash:'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M7 7l1 14h8l1-14M10 11v6M14 11v6"/></svg>'
+  };
+  ME.googleEarthUrlFor=function(lat,lon){return `https://earth.google.com/web/search/${encodeURIComponent(Number(lat).toFixed(6)+','+Number(lon).toFixed(6))}`;};
+  ME.cachedNearestAddressForPin=function(lat,lon){
+    try{const v=localStorage.getItem(addrKey(lat,lon));return v?String(v):'';}catch(e){return '';}
+  };
+  ME._pinAddressPick=function(a,keys){
+    try{
+      for(const k of keys){
+        const v=a&&a[k];
+        if(v!==undefined&&v!==null&&String(v).trim())return String(v).trim();
+      }
+    }catch(e){}
+    return '';
+  };
+  ME._pinAddressUnique=function(parts){
+    const out=[], seen=new Set();
+    for(const raw of parts||[]){
+      const v=String(raw||'').replace(/\s+/g,' ').trim();
+      if(!v)continue;
+      const key=v.toLowerCase();
+      if(seen.has(key))continue;
+      seen.add(key); out.push(v);
+    }
+    return out;
+  };
+  ME.formatReverseGeocodeAddress=function(data){
+    const a=data&&data.address?data.address:{};
+    const pick=(...keys)=>this._pinAddressPick(a,keys);
+    const display=String(data?.display_name||'').replace(/\s+/g,' ').trim();
+    const name=String(data?.name||'').replace(/\s+/g,' ').trim();
+    const lotFromDisplay=(display.match(/\bLot\s*[0-9A-Za-z/-]+\b/i)||[])[0]||'';
+    const rawLot=pick('lot','lot_number','parcel','parcel_number','allotment','plot')||lotFromDisplay;
+    const lot=rawLot?(/^lot\b/i.test(rawLot)?rawLot:`Lot ${rawLot}`):'';
+    const unit=pick('unit','flat','apartment','suite');
+    const unitText=unit?(/^unit\b/i.test(unit)?unit:`Unit ${unit}`):'';
+    const house=pick('house_number','addr:housenumber');
+    const road=pick('road','pedestrian','footway','cycleway','path','track','service','residential','unclassified','tertiary','secondary','primary','trunk','motorway')||((String(data?.class||'')==='highway'||String(data?.category||'')==='highway')?name:'');
+    const site=pick('house_name','farm','isolated_dwelling','place','building','amenity','tourism','shop','office','industrial','man_made','substation')||((!road&&name)?name:'');
+    const locality=pick('suburb','neighbourhood','quarter','hamlet','village','town','city','municipality','county','state_district');
+    const state=pick('state');
+    const postcode=pick('postcode');
+    const lead=this._pinAddressUnique([unitText,lot,house]).join(' / ');
+    let first='';
+    if(lead&&road)first=`${lead} ${road}`;
+    else if(lead)first=lead;
+    else if(site&&road)first=`${site}, ${road}`;
+    else if(road)first=road;
+    else if(site)first=site;
+    const parts=this._pinAddressUnique([first,locality,state,postcode]);
+    const text=parts.join(', ').replace(/\s+/g,' ').trim();
+    if(text)return text;
+    return display?display.split(',').slice(0,5).map(v=>v.trim()).filter(Boolean).join(', '):'';
+  };
+  ME.reverseAddressQualityScore=function(data,text){
+    const a=data&&data.address?data.address:{};
+    const pick=(...keys)=>this._pinAddressPick(a,keys);
+    let score=0;
+    const display=String(data?.display_name||'');
+    const hasLot=!!(pick('lot','lot_number','parcel','parcel_number','allotment','plot')||display.match(/\bLot\s*[0-9A-Za-z/-]+\b/i));
+    const hasHouse=!!pick('house_number','addr:housenumber','unit','flat','apartment','suite');
+    const hasRoad=!!(pick('road','pedestrian','footway','cycleway','path','track','service','residential','unclassified','tertiary','secondary','primary','trunk','motorway')||String(data?.class||'')==='highway');
+    const hasSite=!!pick('house_name','farm','isolated_dwelling','place','building','amenity','tourism','shop','office','industrial','man_made','substation');
+    const hasLocality=!!pick('suburb','neighbourhood','quarter','hamlet','village','town','city','municipality','county','state_district');
+    if(hasLot)score+=45;
+    if(hasHouse)score+=45;
+    if(hasRoad)score+=35;
+    if(hasSite)score+=20;
+    if(hasLocality)score+=10;
+    if(pick('postcode'))score+=5;
+    if(text)score+=3;
+    return score;
+  };
+  ME.pinFetchJsonWithTimeout=function(url,ms=4200,opts={}){
+    return new Promise(resolve=>{
+      let done=false;
+      const finish=(v)=>{if(done)return;done=true;try{clearTimeout(timer);}catch(_e){}resolve(v||null);};
+      const timer=setTimeout(()=>finish(null),Math.max(1200,Number(ms)||4200));
+      try{
+        fetch(url,Object.assign({cache:'no-store'},opts||{})).then(async res=>{
+          if(!res||!res.ok)return null;
+          try{return await res.json();}catch(_e){return null;}
+        }).then(finish).catch(err=>{
+          try{window.Diagnostics&&window.Diagnostics.log&&window.Diagnostics.log('Address lookup fetch failed',String(err&&err.message||err||''));}catch(_e){}
+          finish(null);
+        });
+      }catch(err){
+        try{window.Diagnostics&&window.Diagnostics.log&&window.Diagnostics.log('Address lookup fetch blocked',String(err&&err.message||err||''));}catch(_e){}
+        finish(null);
+      }
+    });
+  };
+  ME.localityTextFromReverse=function(data){
+    const a=data&&data.address?data.address:{};
+    const pick=(...keys)=>this._pinAddressPick(a,keys);
+    const locality=pick('suburb','neighbourhood','quarter','hamlet','village','town','city','municipality','county','state_district');
+    const state=pick('state');
+    const postcode=pick('postcode');
+    return this._pinAddressUnique([locality,state,postcode]).join(', ');
+  };
+  ME.formatPhotonAddress=function(data){
+    try{
+      const feats=Array.isArray(data?.features)?data.features:[];
+      let best='', bestScore=-1;
+      for(const f of feats){
+        const p=f?.properties||{};
+        const house=String(p.housenumber||p.house_number||'').trim();
+        const road=String(p.street||p.road||((p.osm_key==='highway'||p.osm_value==='residential')?p.name:'')||'').trim();
+        const name=String(p.name||'').trim();
+        const locality=String(p.city||p.town||p.village||p.locality||p.district||p.county||'').trim();
+        const state=String(p.state||'').trim();
+        const postcode=String(p.postcode||'').trim();
+        let first='';
+        if(house&&road)first=`${house} ${road}`;
+        else if(road)first=road;
+        else if(name&&/road|street|track|drive|lane|avenue|way|highway|terrace|parade|place|court|close|crescent|loop/i.test(name))first=name;
+        if(!first)continue;
+        const text=this._pinAddressUnique([first,locality,state,postcode]).join(', ');
+        const score=(house?90:55)+(road?25:0)+(locality?8:0)+(postcode?4:0);
+        if(text&&score>bestScore){best=text;bestScore=score;}
+      }
+      return best;
+    }catch(e){return '';}
+  };
+  ME.formatBigDataCloudLocality=function(data){
+    try{
+      let admin='';
+      const arr=Array.isArray(data?.localityInfo?.administrative)?data.localityInfo.administrative:[];
+      for(const x of arr){if(x&&Number(x.adminLevel)>=8&&x.name){admin=String(x.name).trim();break;}}
+      const loc=String(data?.locality||data?.city||admin||'').trim();
+      const state=String(data?.principalSubdivisionCode||data?.principalSubdivision||'').trim();
+      const postcode=String(data?.postcode||data?.postalCode||'').trim();
+      return this._pinAddressUnique([loc,state,postcode]).join(', ');
+    }catch(e){return '';}
+  };
+  ME.formatOverpassStreetAddress=function(el,origin,localityHint=''){
+    try{
+      const tags=el?.tags||{};
+      const lat0=Number(el?.lat ?? el?.center?.lat), lon0=Number(el?.lon ?? el?.center?.lon);
+      const m=this.distanceM?this.distanceM(origin,{lat:lat0,lon:lon0}):Infinity;
+      const full=String(tags['addr:full']||'').replace(/\s+/g,' ').trim();
+      const unit=String(tags['addr:unit']||tags['addr:flats']||'').trim();
+      const house=String(tags['addr:housenumber']||'').trim();
+      const street=String(tags['addr:street']||tags['addr:road']||'').trim();
+      const suburb=String(tags['addr:suburb']||tags['addr:city']||tags['addr:town']||tags['addr:locality']||'').trim();
+      const state=String(tags['addr:state']||'').trim();
+      const postcode=String(tags['addr:postcode']||'').trim();
+      const roadName=String(tags.name||'').replace(/\s+/g,' ').trim();
+      const isAddress=!!(full||(house&&street));
+      let text='';
+      if(full)text=full;
+      else if(house&&street)text=this._pinAddressUnique([unit?`Unit ${unit}`:'',`${house} ${street}`,suburb||localityHint,state,postcode]).join(', ');
+      else if(street)text=this._pinAddressUnique([street,suburb||localityHint,state,postcode]).join(', ');
+      else if(roadName&&tags.highway)text=this._pinAddressUnique([roadName,localityHint]).join(', ');
+      if(!text)return null;
+      return {text,m:Number.isFinite(m)?m:999999,isAddress,isRoad:!!(roadName&&tags.highway),score:(isAddress?100000:50000)-(Number.isFinite(m)?m:999999)};
+    }catch(e){return null;}
+  };
+  ME.lookupOverpassClosestStreetAddress=async function(lat,lon,localityHint=''){
+    const origin={lat,lon};
+    const radii=[150,350,750,1500,3000,6000];
+    const endpoints=['https://overpass-api.de/api/interpreter','https://overpass.kumi.systems/api/interpreter'];
+    let bestRoad=null;
+    for(const radius of radii){
+      const query=`[out:json][timeout:7];(node(around:${radius},${lat},${lon})["addr:housenumber"];way(around:${radius},${lat},${lon})["addr:housenumber"];relation(around:${radius},${lat},${lon})["addr:housenumber"];node(around:${radius},${lat},${lon})["addr:street"];way(around:${radius},${lat},${lon})["addr:street"];node(around:${radius},${lat},${lon})["highway"]["name"];way(around:${radius},${lat},${lon})["highway"]["name"];);out center tags qt 90;`;
+      for(const ep of endpoints){
+        const data=await this.pinFetchJsonWithTimeout(`${ep}?data=${encodeURIComponent(query)}`,radius>1500?6500:5200);
+        const els=Array.isArray(data?.elements)?data.elements:[];
+        if(!els.length)continue;
+        const cands=els.map(e=>this.formatOverpassStreetAddress(e,origin,localityHint)).filter(Boolean).sort((a,b)=>b.score-a.score);
+        const address=cands.find(c=>c.isAddress);
+        if(address&&address.text)return address.text;
+        const road=cands.find(c=>c.isRoad||c.text);
+        if(road&&road.text&&(!bestRoad||road.m<bestRoad.m))bestRoad=road;
+      }
+    }
+    return bestRoad&&bestRoad.text?bestRoad.text:'';
+  };
+  ME.lookupNearestAddressForPin=async function(lat,lon){
+    lat=num(lat); lon=num(lon);
+    if(lat===null||lon===null)return '';
+    const cached=this.cachedNearestAddressForPin(lat,lon);
+    if(cached)return cached;
+    let bestText='', bestScore=-1, localityHint='';
+    const zooms=[18,17,16,15,14,13];
+    try{
+      for(const zoom of zooms){
+        const url=`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${encodeURIComponent(lat.toFixed(6))}&lon=${encodeURIComponent(lon.toFixed(6))}&zoom=${zoom}&addressdetails=1&namedetails=1`;
+        const data=await this.pinFetchJsonWithTimeout(url,zoom>=17?3800:3200);
+        if(!data)continue;
+        const loc=this.localityTextFromReverse(data);
+        if(loc&&!localityHint)localityHint=loc;
+        const text=this.formatReverseGeocodeAddress(data);
+        const score=this.reverseAddressQualityScore(data,text);
+        if(text&&score>bestScore){bestText=text;bestScore=score;}
+        if(score>=83)break;
+      }
+    }catch(e){}
+    if(bestText&&bestScore>=83){try{localStorage.setItem(addrKey(lat,lon),bestText);}catch(e){} return bestText;}
+    try{
+      const ph=await this.pinFetchJsonWithTimeout(`https://photon.komoot.io/reverse?lat=${encodeURIComponent(lat.toFixed(6))}&lon=${encodeURIComponent(lon.toFixed(6))}&limit=6`,4200);
+      const text=this.formatPhotonAddress(ph);
+      if(text&&(/\d/.test(text)||!bestText)){try{localStorage.setItem(addrKey(lat,lon),text);}catch(e){} return text;}
+      if(text&&!bestText)bestText=text;
+    }catch(e){}
+    try{
+      const bdc=await this.pinFetchJsonWithTimeout(`https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${encodeURIComponent(lat.toFixed(6))}&longitude=${encodeURIComponent(lon.toFixed(6))}&localityLanguage=en`,3500);
+      const loc=this.formatBigDataCloudLocality(bdc);
+      if(loc&&!localityHint)localityHint=loc;
+    }catch(e){}
+    try{
+      const text=await this.lookupOverpassClosestStreetAddress(lat,lon,localityHint);
+      if(text){try{localStorage.setItem(addrKey(lat,lon),text);}catch(e){} return text;}
+    }catch(e){}
+    if(bestText){try{localStorage.setItem(addrKey(lat,lon),bestText);}catch(e){} return bestText;}
+    return '';
+  };
+  ME.updatePinAddressInPopup=function(lat,lon,id){
+    lat=num(lat); lon=num(lon);
+    if(lat===null||lon===null)return;
+    const selector=`.pin-drop-address[data-pin-lat="${lat.toFixed(6)}"][data-pin-lon="${lon.toFixed(6)}"]`;
+    const apply=function(text){
+      try{document.querySelectorAll(selector).forEach(el=>{el.textContent=text||'No street address found — use Maps/Earth';el.classList.toggle('resolved',!!text);});}catch(e){}
+    };
+    const cached=this.cachedNearestAddressForPin(lat,lon);
+    if(cached){apply(cached);return;}
+    apply('Finding closest street address…');
+    this.lookupNearestAddressForPin(lat,lon).then(text=>{
+      apply(text);
+      if(text&&id){
+        try{
+          const arr=this.readSavedPinDrops();
+          const idx=arr.findIndex(p=>String(p.id)===String(id));
+          if(idx>=0){arr[idx].nearestAddress=text;arr[idx].googleEarthLocation=this.googleEarthUrlFor(lat,lon);delete arr[idx].gpsLocation;this.writeSavedPinDrops(arr);}
+        }catch(e){}
+      }
+    }).catch(err=>{
+      try{
+        const msg=String(err&&err.message||err||'');
+        const name=String(err&&err.name||'');
+        if(!(name==='AbortError'||/Failed to fetch/i.test(msg)||/aborted/i.test(msg))){window.Diagnostics&&window.Diagnostics.log&&window.Diagnostics.log('Nearest address apply failure',msg);}
+      }catch(_e){}
+      apply('');
+    });
+  };
+  const oldRead=ME.readSavedPinDrops;
+  ME.readSavedPinDrops=function(){
+    const arr=oldRead?oldRead.call(this):[];
+    return (Array.isArray(arr)?arr:[]).map(p=>{
+      if(!p||typeof p!=='object')return p;
+      if(p.gpsLocation||!p.googleEarthLocation){
+        const c=Object.assign({},p);
+        delete c.gpsLocation;
+        const lat=num(c?.pin?.lat), lon=num(c?.pin?.lon);
+        if(lat!==null&&lon!==null&&!c.googleEarthLocation)c.googleEarthLocation=this.googleEarthUrlFor(lat,lon);
+        return c;
+      }
+      return p;
+    });
+  };
+  const oldSave=ME.savePinDrop;
+  ME.savePinDrop=function(lat,lon,comments='',existingId=''){
+    const rec=oldSave?oldSave.call(this,lat,lon,comments,existingId):null;
+    const la=num(lat), lo=num(lon);
+    if(rec&&la!==null&&lo!==null){
+      try{
+        const arr=this.readSavedPinDrops();
+        const idx=arr.findIndex(p=>String(p.id)===String(rec.id));
+        if(idx>=0){
+          delete arr[idx].gpsLocation;
+          arr[idx].googleEarthLocation=this.googleEarthUrlFor(la,lo);
+          const cached=this.cachedNearestAddressForPin(la,lo);
+          if(cached)arr[idx].nearestAddress=cached;
+          this.writeSavedPinDrops(arr);
+        }
+      }catch(e){}
+      try{setTimeout(()=>this.updatePinAddressInPopup(la,lo,rec.id),120);}catch(e){}
+    }
+    return rec;
+  };
+  ME.pinDropPopupHtml=function(ll,opts={}){
+    const lat=num(ll?.lat), lon=num(ll?.lng??ll?.lon);
+    if(lat===null||lon===null)return '<div class="asset-popup pin-drop-popup"><div class="pin-drop-title-row"><h3>Pin drop</h3></div><p>Invalid pin location.</p></div>';
+    const saved=!!opts.saved;
+    const id=String(opts.id||opts.record?.id||'');
+    const comments=String(opts.comments??opts.record?.comments??'');
+    const maps=this.googleMapsUrlFor(lat,lon);
+    const earth=this.googleEarthUrlFor(lat,lon);
+    let circuits=[];
+    try{circuits=opts.record?.nearestCircuits250m||this.nearestCircuitsNear(lat,lon,250).slice(0,8);}catch(e){circuits=[];}
+    const title=saved?'Saved pin':'New pin';
+    const meta=saved&&opts.record?.localDateTime?opts.record.localDateTime:new Date().toLocaleString();
+    const actionSave=saved?'Update pin':'Save pin';
+    const removeLabel=saved?'Delete pin':'Remove pin';
+    const removeAction=saved?'deleteSaved':'remove';
+    const latS=String(lat), lonS=String(lon), idS=q(id);
+    const address=opts.record?.nearestAddress||this.cachedNearestAddressForPin(lat,lon)||'Finding nearest address…';
+    const circuitText=circuits.length?esc(circuits.join(', ')):'None within 250 m';
+    try{setTimeout(()=>this.updatePinAddressInPopup(lat,lon,id),160);}catch(e){}
+    return `<div class="asset-popup pin-drop-popup pin-drop-popup-v139" data-pin-popup="1"><div class="pin-drop-title-row"><h3>${title}</h3></div><div class="pin-detail-list"><div class="pin-detail-row"><span class="pin-detail-ico">${icon.addr}</span><div><b>Nearest address</b><span class="pin-drop-address" data-pin-lat="${lat.toFixed(6)}" data-pin-lon="${lon.toFixed(6)}">${esc(address)}</span></div></div><div class="pin-detail-row"><span class="pin-detail-ico">${icon.cal}</span><div><b>Date / time</b><span>${esc(meta)}</span></div></div><div class="pin-detail-row"><span class="pin-detail-ico">${icon.net}</span><div><b>Nearest circuits</b><span>${circuitText}</span></div></div></div><div class="pin-separator"></div><label class="pin-comment-label">Comments<textarea class="pin-drop-comment" rows="2" placeholder="Add notes for this pin...">${esc(comments)}</textarea></label><div class="popup-actions pin-drop-action-grid"><a class="popup-btn map-link" target="_blank" rel="noopener" href="${maps}">${icon.ext}<span>Google Maps</span></a><a class="popup-btn earth-link" target="_blank" rel="noopener" href="${earth}">${icon.earth}<span>Google Earth</span></a><button type="button" class="popup-btn proximity-link" data-pin-drop-action="proximity" data-lat="${latS}" data-lon="${lonS}" data-pin-id="${esc(id)}" onclick="window.fmPinDropAction&&window.fmPinDropAction('proximity',${latS},${lonS},'${idS}');return false;">${icon.target}<span>Proximity 350 m</span></button><button type="button" class="popup-btn primary" data-pin-drop-action="save" data-lat="${latS}" data-lon="${lonS}" data-pin-id="${esc(id)}" onclick="window.fmPinDropSaveFromPopup&&window.fmPinDropSaveFromPopup(${latS},${lonS},'${idS}');return false;">${icon.save}<span>${actionSave}</span></button><button type="button" class="popup-btn danger" data-pin-drop-action="${removeAction}" data-lat="${latS}" data-lon="${lonS}" data-pin-id="${esc(id)}" onclick="window.fmPinDropAction&&window.fmPinDropAction('${removeAction}',${latS},${lonS},'${idS}');return false;">${icon.trash}<span>${removeLabel}</span></button></div><div class="pin-helper-note"><span class="pin-helper-ico">i</span><small>Saved pins keep comments, nearest address, nearest circuits and map links on this phone.</small></div></div>`;
+  };
+})();
+
+
+/* myMap v3.1.142: multi-point measuring overlay + smaller padded pin marker */
+(function(){
+  if(!window.MapEngine||!window.L)return;
+  const ME=window.MapEngine;
+  const esc=v=>{try{return (window.UI&&UI.esc)?UI.esc(v):String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}catch(e){return String(v??'');}};
+  const oldUiTarget=ME.isMapInteractionUiTarget;
+  ME.isMapInteractionUiTarget=function(target){
+    try{if(target&&target.closest&&target.closest('.measure-overlay'))return true;}catch(e){}
+    return oldUiTarget?oldUiTarget.call(this,target):false;
+  };
+  ME.makePinDropIcon=function(saved=false){
+    return L.divIcon({className:`pin-drop-leaflet-icon ${saved?'saved-pin-icon':'temp-pin-icon'}`,html:`<div class="pin-drop-marker ${saved?'saved':'temp'}" aria-hidden="true"><span></span></div>`,iconSize:[30,40],iconAnchor:[15,38],popupAnchor:[0,-36]});
+  };
+  ME.measureStatusLabel=function(){
+    const pts=(this._measureRecords||[]).length;
+    const total=this._measureTotalM||0;
+    if(this.measureMode)return pts?`${pts} pts · ${this.formatMeasureDistance(total)}`:'tap map · snap on';
+    return pts?`${pts} pts · ${this.formatMeasureDistance(total)}`:'off';
+  };
+  ME.showMeasureOverlay=function(){
+    let el=document.getElementById('measureOverlay');
+    if(!el){
+      el=document.createElement('section');
+      el.id='measureOverlay';
+      el.className='measure-overlay hidden';
+      el.setAttribute('aria-live','polite');
+      document.body.appendChild(el);
+      el.addEventListener('click',e=>{
+        const b=e.target.closest?.('button[data-measure-action]');
+        if(!b)return;
+        try{e.preventDefault();e.stopPropagation();}catch(_e){}
+        const a=String(b.dataset.measureAction||'');
+        if(a==='snap'){this.measureSnapEnabled=!this.measureSnapEnabled;this.renderMeasureOverlay();UI?.toast?.(this.measureSnapEnabled?'Snap on.':'Snap off.');return;}
+        if(a==='undo'){this.undoLastMeasurePoint();return;}
+        if(a==='clear'){this.clearMeasure(true);return;}
+        if(a==='done'){this.stopMeasureTool(true);this.hideMeasureOverlay(false);return;}
+      },true);
+    }
+    el.classList.remove('hidden');
+    this.renderMeasureOverlay();
+  };
+  ME.hideMeasureOverlay=function(force=true){
+    const el=document.getElementById('measureOverlay');
+    if(!el)return;
+    if(force||!this.measureMode)el.classList.add('hidden');
+  };
+  ME.renderMeasureOverlay=function(){
+    const el=document.getElementById('measureOverlay');
+    if(!el)return;
+    const pts=(this._measureRecords||[]).length;
+    const total=this._measureTotalM||0;
+    const last=this._measureLastSegmentM||0;
+    const snapOn=!!this.measureSnapEnabled;
+    el.innerHTML=`<div class="measure-head"><div><b>Measure</b><span>${this.measureMode?'Tap points on map':'Result shown'}</span></div><button type="button" data-measure-action="done">Done</button></div><div class="measure-total"><div><small>Total</small><strong>${esc(this.formatMeasureDistance(total))}</strong></div><div><small>Last leg</small><strong>${pts>1?esc(this.formatMeasureDistance(last)):'—'}</strong></div></div><div class="measure-actions"><button type="button" class="${snapOn?'active':''}" data-measure-action="snap">Snap ${snapOn?'ON':'OFF'}</button><button type="button" data-measure-action="undo" ${pts?'':'disabled'}>Undo</button><button type="button" class="danger" data-measure-action="clear">Clear</button></div><div class="measure-tip">${pts?`${pts} point${pts===1?'':'s'} set. Tap more points for multi-measure.`:'Tap the map to set the first point. Snap finds nearby visible asset dots.'}</div>`;
+  };
+  ME.startMeasureTool=function(){
+    if(!this.map||!window.L){UI?.toast?.('Map not ready.');return;}
+    try{this.map.closePopup?.();}catch(e){}
+    this.clearMeasure(false);
+    this.measureMode=true;
+    this.measurePoints=[];
+    this._measureRecords=[];
+    this._measureTotalM=0;
+    this._measureLastSegmentM=0;
+    this._lastMeasureInput=null;
+    this.ensureMeasureLayer();
+    try{this.map.getContainer?.().classList.add('measure-mode');}catch(e){}
+    this.showMeasureOverlay();
+    UI?.toast?.('Measure on. Tap multiple points. Snap can be toggled.');
+  };
+  ME.stopMeasureTool=function(showToast=false){
+    this.measureMode=false;
+    try{this.map?.getContainer?.().classList.remove('measure-mode');}catch(e){}
+    this.renderMeasureOverlay();
+    if(showToast)UI?.toast?.('Measure done.');
+  };
+  ME.clearMeasure=function(showToast=true){
+    this.measurePoints=[];
+    this._measureRecords=[];
+    this._measureTotalM=0;
+    this._measureLastSegmentM=0;
+    this.measureMode=false;
+    this._lastMeasureInput=null;
+    try{this.map?.getContainer?.().classList.remove('measure-mode');}catch(e){}
+    try{this.measureLayer?.clearLayers?.();}catch(e){}
+    this.measureLayer=null;
+    this.hideMeasureOverlay(true);
+    if(showToast)UI?.toast?.('Measure cleared.');
+  };
+  ME.rebuildMeasureLayer=function(){
+    const records=(this._measureRecords||[]).slice();
+    const layer=this.ensureMeasureLayer();
+    if(!layer)return;
+    try{layer.clearLayers();}catch(e){}
+    this.measurePoints=records.map(r=>L.latLng(r.lat,r.lng));
+    this._measureTotalM=0; this._measureLastSegmentM=0;
+    for(let i=0;i<records.length;i++){
+      const r=records[i]; const ll=L.latLng(r.lat,r.lng);
+      try{
+        const icon=L.divIcon({className:'measure-dot-icon',html:`<div class="measure-dot-label ${r.snapped?'snapped':''}">${i+1}</div>`,iconSize:[24,24],iconAnchor:[12,12]});
+        L.marker(ll,{icon,interactive:false,zIndexOffset:5200}).addTo(layer);
+      }catch(e){try{L.circleMarker(ll,{radius:8,color:'#2f5a31',weight:4,fillColor:'#fffaf0',fillOpacity:1,interactive:false}).addTo(layer);}catch(_){}}
+      if(i>0){
+        const p=records[i-1]; const a=L.latLng(p.lat,p.lng), b=ll;
+        const m=this.distanceM({lat:a.lat,lon:a.lng},{lat:b.lat,lon:b.lng});
+        if(Number.isFinite(m)){this._measureTotalM+=m; this._measureLastSegmentM=m;}
+        try{
+          L.polyline([a,b],{color:'#2f5a31',weight:5,opacity:.95,dashArray:'8 8',interactive:false}).addTo(layer);
+          const mid=L.latLng((a.lat+b.lat)/2,(a.lng+b.lng)/2);
+          L.tooltip({permanent:true,direction:'center',className:'measure-tooltip',interactive:false,offset:[0,0]}).setLatLng(mid).setContent(this.formatMeasureDistance(m)).addTo(layer);
+        }catch(e){}
+      }
+    }
+    if(records.length>1){
+      const last=records[records.length-1];
+      try{L.tooltip({permanent:true,direction:'top',className:'measure-tooltip measure-total-tooltip',interactive:false,offset:[0,-16]}).setLatLng([last.lat,last.lng]).setContent('Total '+this.formatMeasureDistance(this._measureTotalM)).addTo(layer);}catch(e){}
+    }
+    this.renderMeasureOverlay();
+  };
+  ME.undoLastMeasurePoint=function(){
+    const arr=this._measureRecords||[];
+    if(!arr.length){UI?.toast?.('No measure point to undo.');return;}
+    arr.pop();
+    this._measureRecords=arr;
+    this.rebuildMeasureLayer();
+    UI?.toast?.(arr.length?'Last measure point removed.':'Measure points cleared.');
+  };
+  ME.addMeasurePoint=function(rawLl,ev){
+    if(!this.measureMode)return;
+    const ll0=L.latLng(Number(rawLl.lat),Number(rawLl.lng??rawLl.lon));
+    if(!Number.isFinite(ll0.lat)||!Number.isFinite(ll0.lng))return;
+    const last=this._lastMeasureInput; const now=Date.now();
+    if(last&&now-last.at<650&&this.distanceM({lat:last.lat,lon:last.lng},{lat:ll0.lat,lon:ll0.lng})<1.5)return;
+    this._lastMeasureInput={at:now,lat:ll0.lat,lng:ll0.lng};
+    const snap=this.measureSnapEnabled?this.snapLatLngToAsset(ll0):null;
+    const ll=snap?.latlng||ll0;
+    try{ev?.originalEvent?.preventDefault?.();ev?.originalEvent?.stopPropagation?.();ev?.preventDefault?.();ev?.stopPropagation?.();}catch(e){}
+    if(!Array.isArray(this._measureRecords))this._measureRecords=[];
+    this._measureRecords.push({lat:ll.lat,lng:ll.lng,snapped:!!snap,label:snap?.label||''});
+    this.rebuildMeasureLayer();
+    const count=this._measureRecords.length;
+    if(count===1)UI?.toast?.(snap?`Point 1 snapped: ${snap.label}`:'Point 1 set. Tap next point.');
+    else UI?.toast?.(`${snap?'Snapped · ':''}Total ${this.formatMeasureDistance(this._measureTotalM)}.`);
+  };
+  ME.handleMeasureMapClick=function(ev){
+    if(!this.measureMode)return;
+    const ll=ev?.latlng||this.latLngFromDomEvent(ev);
+    if(!ll)return;
+    this.addMeasurePoint(ll,ev);
+  };
+})();
+
+
+/* myMap v3.1.156: small freeze reduction without changing UI behaviour */
+(function(){
+  const ME=window.MapEngine;
+  if(!ME||ME.__smoothFreezePatch155)return;
+  ME.__smoothFreezePatch155=true;
+
+  const raf=(fn)=>{try{return (window.requestAnimationFrame||window.setTimeout)(fn,16);}catch(e){return setTimeout(fn,16);}};
+  const now=()=>Date.now();
+  const validLatLon=(a)=>a&&Number.isFinite(Number(a.lat))&&Number.isFinite(Number(a.lon));
+  const assetId=(a)=>String(a?.id||a?.assetId||a?.globalId||`${a?.lat},${a?.lon},${a?.label||a?.line||''}`);
+  const escText=(v)=>String(v??'');
+
+  ME._fastSetText=function(id,val){
+    const el=document.getElementById(id);
+    if(!el)return;
+    const s=escText(val);
+    if(el.textContent!==s)el.textContent=s;
+  };
+
+  const oldUpdateMapStatus=ME.updateGpsMapStatus;
+  ME.updateGpsMapStatus=function(){
+    const el=document.getElementById('gpsMapStatus');
+    if(!el){try{return oldUpdateMapStatus?.call(this);}catch(e){return;}}
+    const val=document.getElementById('gpsMapAccuracy');
+    const g=this.gpsLast;
+    const acc=Number(g?.accuracy);
+    const cls=this.gpsError?'gps-none':this.gpsSignalClass(acc);
+    const txt=(g&&!this.gpsError&&Number.isFinite(acc))?`${Math.round(acc)} m`:'—';
+    const stamp=[cls,txt,this.gpsError?'1':'0'].join('|');
+    if(this._gpsMapStatusStamp===stamp)return;
+    this._gpsMapStatusStamp=stamp;
+    el.classList.remove('gps-none','gps-strong','gps-good','gps-weak','gps-poor','active');
+    el.classList.add(cls);
+    if(g&&!this.gpsError)el.classList.add('active');
+    if(val&&val.textContent!==txt)val.textContent=txt;
+    el.title=(g&&!this.gpsError&&Number.isFinite(acc))?`GPS accuracy ${Math.round(acc)} m`:'GPS signal / accuracy';
+  };
+
+  ME._gpsActivePool=function(){
+    const full=Array.isArray(this.lastFullCircuitAssets)?this.lastFullCircuitAssets:[];
+    const drawn=Array.isArray(this.lastDrawnAssets)?this.lastDrawnAssets:[];
+    if(full.length)return full;
+    if(drawn.length)return drawn;
+    return [];
+  };
+
+  ME._gpsPoolSig=function(pool){
+    if(!Array.isArray(pool)||!pool.length)return 'empty';
+    const first=pool[0]||{}, last=pool[pool.length-1]||{};
+    return [pool.length,this.lastFullCircuitLabel||'',this.currentDisplay||'',assetId(first),assetId(last)].join('|');
+  };
+
+  ME._gpsBuildNearbyCache=function(pool){
+    const size=0.012;
+    const sig=this._gpsPoolSig(pool);
+    const old=this._gpsNearbyCache;
+    if(old&&old.sig===sig&&old.size===size)return old;
+    const grid=new Map();
+    for(const a of pool||[]){
+      if(!validLatLon(a)||a.kind==='circuit')continue;
+      try{if(window.UtilitiesEngine?.isUtility?.(a)||window.SearchEngine?.isUtilityAsset?.(a))continue;}catch(e){}
+      const y=Math.floor(Number(a.lat)/size), x=Math.floor(Number(a.lon)/size);
+      const k=y+'|'+x;
+      let arr=grid.get(k);
+      if(!arr){arr=[];grid.set(k,arr);}
+      arr.push(a);
+    }
+    this._gpsNearbyCache={sig,size,grid,at:now()};
+    return this._gpsNearbyCache;
+  };
+
+  ME._gpsNearbyFromPool=function(pool,lat,lon,limit=240){
+    if(!Array.isArray(pool)||!pool.length)return [];
+    if(pool.length<=1800)return pool;
+    const cache=this._gpsBuildNearbyCache(pool);
+    const size=cache.size;
+    const cy=Math.floor(Number(lat)/size), cx=Math.floor(Number(lon)/size);
+    const seen=new Set();
+    const out=[];
+    const rings=[0,1,2,4,8,16];
+    for(const r of rings){
+      for(let y=cy-r;y<=cy+r;y++){
+        for(let x=cx-r;x<=cx+r;x++){
+          if(r>0&&Math.abs(y-cy)<r&&Math.abs(x-cx)<r)continue;
+          const cell=cache.grid.get(y+'|'+x);
+          if(!cell)continue;
+          for(const a of cell){
+            const id=assetId(a);
+            if(seen.has(id))continue;
+            seen.add(id);
+            out.push(a);
+            if(out.length>=limit)return out;
+          }
+        }
+      }
+      if(out.length>=28)return out;
+    }
+    return out;
+  };
+
+  const oldNearby=ME.nearbyAssetsForGps;
+  ME.nearbyAssetsForGps=function(lat,lon){
+    const active=this._gpsActivePool?.()||[];
+    if(active.length){
+      const quick=this._gpsNearbyFromPool(active,lat,lon,260);
+      if(quick.length)return quick;
+      return active.length<=1800?active:[];
+    }
+    try{return oldNearby?oldNearby.call(this,lat,lon):[];}catch(e){return [];}
+  };
+
+  const oldMeasureCandidates=ME.measureSnapCandidates;
+  ME.measureSnapCandidates=function(){
+    const ll=this._lastMeasureInput;
+    const active=this._gpsActivePool?.()||[];
+    if(active.length&&ll&&Number.isFinite(Number(ll.lat))&&Number.isFinite(Number(ll.lng))){
+      const quick=this._gpsNearbyFromPool(active,ll.lat,ll.lng,220);
+      if(quick.length)return quick;
+    }
+    try{return oldMeasureCandidates?oldMeasureCandidates.call(this):[];}catch(e){return [];}
+  };
+
+  const oldGpsPanel=ME.updateGpsPanel;
+  ME.updateGpsPanel=function(pos){
+    const g=this.gpsLast;
+    if(!g){
+      try{this.updateGpsMapStatus();}catch(e){}
+      return;
+    }
+    this._gpsPanelLatest=g;
+    const stamp=[this.gpsProfile||'',this.gpsMode||'',this.gpsRotateHeading?'1':'0',this.breadcrumbEnabled?'1':'0',this.gpsPanelMinimized?'1':'0'].join('|');
+    if(this._gpsProfileUiStamp!==stamp){
+      this._gpsProfileUiStamp=stamp;
+      try{this.updateGpsProfileButtons();}catch(e){}
+    }
+    if(!this._gpsPanelRaf){
+      this._gpsPanelRaf=raf(()=>{
+        this._gpsPanelRaf=0;
+        const fix=this._gpsPanelLatest||this.gpsLast;
+        if(!fix)return;
+        const speedMps=Number(fix.speed);
+        const kmh=Number.isFinite(speedMps)&&speedMps>=0?speedMps*3.6:NaN;
+        const kt=Number.isFinite(speedMps)&&speedMps>=0?speedMps*1.943844:NaN;
+        const speedText=Number.isFinite(kmh)?(this.gpsProfile==='helicopter'?`${Math.round(kmh)} km/h · ${Math.round(kt)} kt`:`${Math.round(kmh)} km/h`):'—';
+        const altitude=Number(fix.altitude);
+        const heading=Number(fix.heading);
+        this._fastSetText('gpsSpeedValue',speedText);
+        this._fastSetText('gpsAltitudeValue',Number.isFinite(altitude)?`${Math.round(altitude)} m · ${Math.round(altitude*3.28084)} ft`:'—');
+        this._fastSetText('gpsHeadingValue',Number.isFinite(heading)?`${Math.round(heading)}° · ${this.gpsCardinal(heading)}`:'—');
+        const status=document.getElementById('gpsStatus');
+        const statusText=this.gpsMode==='track'?'Tracking':this.gpsModeLabel();
+        if(status&&status.textContent!==statusText)status.textContent=statusText;
+        try{this.updateGpsMapStatus();}catch(e){}
+        let sum=null;
+        try{sum=this.gpsNearestSummary();}catch(e){sum=null;}
+        const pingBtn=document.getElementById('gpsNearestPingBtn');
+        if(sum?.nearest){
+          this._fastSetText('gpsNearestValue',`${this.titleForGpsAsset(sum.nearest)} · ${this.fmtGpsDistance(sum.nearestM)}`);
+          this._fastSetText('gpsCircuitValue',sum.circuit||this.circuitForGpsAsset(sum.nearest)||'—');
+          if(pingBtn&&pingBtn.disabled)pingBtn.disabled=false;
+          if(pingBtn)pingBtn.title='Ping nearest asset on the map for 10 seconds';
+        }else{
+          this._fastSetText('gpsNearestValue','No mapped asset nearby');
+          this._fastSetText('gpsCircuitValue',this.currentCircuit||'—');
+          if(pingBtn&&!pingBtn.disabled)pingBtn.disabled=true;
+          if(pingBtn)pingBtn.title='No nearest asset to ping';
+        }
+        if(sum?.next)this._fastSetText('gpsNextValue',`${this.titleForGpsAsset(sum.next)} · ${this.fmtGpsDistance(sum.nextM)}`);
+        else this._fastSetText('gpsNextValue','—');
+        try{this.updateGpsPanelMinimizedSummary(sum);}catch(e){}
+      });
+    }
+  };
+
+  const oldShowGps=ME.showGpsPanel;
+  ME.showGpsPanel=function(){
+    const panel=document.getElementById('gpsPatrolPanel');
+    if(panel){
+      this.gpsPanelHidden=false;
+      panel.classList.remove('hidden');
+      panel.classList.toggle('minimized',!!this.gpsPanelMinimized);
+      try{this.updateGpsProfileButtons();}catch(e){}
+      try{this.updateGpsPanel();}catch(e){}
+      return;
+    }
+    try{return oldShowGps?oldShowGps.call(this):undefined;}catch(e){}
+  };
+})();
+
+
+/* myMap v3.1.159: pan asset popups above the Patrol overlay so their buttons stay reachable. */
+(function(){
+  const ME=window.MapEngine;
+  if(!ME||ME.__popupAbovePatrolV159)return;
+  ME.__popupAbovePatrolV159=true;
+  const oldPopupOptions=ME.popupOptions;
+  ME.popupOptions=function(){
+    const o=oldPopupOptions?oldPopupOptions.call(this):{};
+    let bottom=74;
+    try{
+      const p=document.getElementById('gpsPatrolPanel');
+      if(p && !p.classList.contains('hidden')){
+        const r=p.getBoundingClientRect();
+        const h=window.innerHeight||document.documentElement.clientHeight||0;
+        if(r&&r.height>30&&r.top>0&&r.top<h-40)bottom=Math.max(bottom,Math.ceil(h-r.top+16));
+      }
+    }catch(e){}
+    return Object.assign({},o,{autoPan:true,keepInView:true,closeOnClick:false,autoPanPaddingTopLeft:[18,92],autoPanPaddingBottomRight:[18,bottom]});
+  };
+  const oldRefit=ME.refitOpenPopup;
+  ME.refitOpenPopup=function(){
+    let result;
+    try{result=oldRefit?oldRefit.call(this):undefined;}catch(e){}
+    try{
+      if(!this.map)return result;
+      const popup=this.map._popup;
+      const root=popup?.getElement?.();
+      const mapEl=this.map.getContainer?.()||document.getElementById('map');
+      if(!root||!mapEl)return result;
+      const r=root.getBoundingClientRect();
+      const m=mapEl.getBoundingClientRect();
+      let stop=m.bottom-24;
+      const panel=document.getElementById('gpsPatrolPanel');
+      if(panel && !panel.classList.contains('hidden')){
+        const pr=panel.getBoundingClientRect();
+        if(pr&&pr.height>30&&pr.top>m.top+80)stop=Math.min(stop,pr.top-10);
+      }
+      let dy=0;
+      if(r.bottom>stop)dy=r.bottom-stop;
+      if(dy>0)this.map.panBy([0,dy],{animate:true,duration:0.14});
+    }catch(e){}
+    return result;
+  };
+})();
+
+
+/* myMap v3.1.189: actual route snippets on demand, compact popup, faint ESA overlay toggle. */
+(function(){
+  const ME=window.MapEngine;
+  if(!ME||ME.__utilityEsaV185)return; ME.__utilityEsaV185=true;
+  const esc=(v)=>String(v??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+  const normLine=(v)=>{try{return (window.SearchEngine?.compact?SearchEngine.compact(SearchEngine.formatCircuitName?.(v||'')||v||''):String(v||'').toUpperCase().replace(/[^A-Z0-9]/g,''));}catch(_){return String(v||'').toUpperCase().replace(/[^A-Z0-9]/g,'');}};
+  const normPole=(v)=>{try{return (window.SearchEngine?.poleKey?SearchEngine.poleKey(v||''):String(v||'').replace(/^0+/,''));}catch(_){return String(v||'').replace(/^0+/,'');}};
+  const linePoleKeys=(a)=>{
+    const keys=[]; const add=(l,p)=>{l=normLine(l);p=normPole(p); if(l&&p){const k=l+'|'+p;if(!keys.includes(k))keys.push(k);}};
+    try{(SearchEngine?.lineRefsForAsset?SearchEngine.lineRefsForAsset(a,true):[]).forEach(r=>add(r.line,r.pole||a?.poleNumber));}catch(_){ }
+    add(a?.line,a?.poleNumber); add(a?.raw?.LINE_NAME,a?.raw?.NAMEPLATE_ID_1); add(a?.raw?.line,a?.raw?.pole); add(a?.raw?.trmsn_line_gis_label||a?.raw?.TRMSN_LINE_GIS_LABEL,a?.raw?.pole||a?.raw?.NAMEPLATE_ID_1);
+    return keys;
+  };
+  const isDrawSidecar=(a)=>String(a?.kind||a?.raw?.KIND||a?.raw?.kind||a?.raw?.asset_type||'').toLowerCase()==='utility-draw-context'||String(a?.raw?.DRAW_CONTEXT_SIDECAR||'')==='1';
+  const hasGeom=(raw)=>!!raw&&Object.entries(raw).some(([k,v])=>/^UTILITY_(?:GEOM|POINT)_/i.test(k)&&String(v??'').trim());
+  const collectDrawSidecars=(a)=>{
+    const keys=linePoleKeys(a); if(!keys.length)return [];
+    const sid=String(SearchEngine?.structureSid?.(a)||a?.raw?.structure_id||a?.raw?.STRUCTURE_ID||'').toUpperCase().replace(/[^A-Z0-9]/g,'');
+    const out=[];
+    const assets=Array.isArray(window.App?.assets)?App.assets:[];
+    for(const b of assets){
+      const r=b?.raw||{}; if(!isDrawSidecar(b)&&!hasGeom(r))continue;
+      let match=false;
+      for(const k of linePoleKeys(b)){if(keys.includes(k)){match=true;break;}}
+      if(!match&&sid){const bs=String(SearchEngine?.structureSid?.(b)||r.structure_id||r.STRUCTURE_ID||'').toUpperCase().replace(/[^A-Z0-9]/g,''); if(bs&&bs===sid)match=true;}
+      if(match)out.push(b);
+      if(out.length>=12)break;
+    }
+    return out;
+  };
+  const oldTypes=ME.utilityContextTypesForAsset;
+  ME.utilityContextTypesForAsset=function(a){
+    let list=[]; try{list=oldTypes?oldTypes.call(this,a):[];}catch(_){list=[];}
+    try{
+      const existing=new Set(list.map(x=>String(x.type||'')));
+      const raws=collectDrawSidecars(a).map(x=>x.raw||{});
+      const rawVal=(raw,key)=>{for(const [k,v] of Object.entries(raw||{})){if(k.toUpperCase()===key.toUpperCase()&&String(v??'').trim())return String(v).trim();}return '';};
+      const addFrom=(raw,type,label,short,color,distKey,sumKey,geomKey,pointKey='')=>{
+        if(existing.has(type)){
+          const item=list.find(x=>x.type===type); if(item){ if(!item.geomText)item.geomText=rawVal(raw,geomKey); if(pointKey&&!item.pointText)item.pointText=rawVal(raw,pointKey); }
+          return;
+        }
+        const g=rawVal(raw,geomKey), p=pointKey?rawVal(raw,pointKey):''; if(!g&&!p)return;
+        const dist=rawVal(raw,distKey); const n=Number(String(dist||'').replace(/[^0-9.\-]/g,''));
+        const summary=rawVal(raw,sumKey);
+        list.push({type,label,short,color,distanceM:Number.isFinite(n)?n:15,distanceLabel:Number.isFinite(n)?(Math.round(n*10)/10)+' m':'nearby',detail:summary,fallbackRadius:15,geomText:g,pointText:p}); existing.add(type);
+      };
+      for(const raw of raws){
+        addFrom(raw,'hvCable','HV underground cable','HVUG','#7c3aed','NEARBY_HV_CABLE_DISTANCE_M','NEARBY_HV_CABLE_TYPE','UTILITY_GEOM_HVUG');
+        addFrom(raw,'water','Water pipe','Water','#1976d2','NEARBY_WATER_DISTANCE_M','NEARBY_WATER_SUMMARY','UTILITY_GEOM_WATER');
+        addFrom(raw,'sewer','Sewer pressure main','Sewer','#795548','NEARBY_SEWER_DISTANCE_M','NEARBY_SEWER_SUMMARY','UTILITY_GEOM_SEWER');
+        addFrom(raw,'railCorridor','Rail corridor','Rail','#111827','NEARBY_RAIL_CORRIDOR_DISTANCE_M','NEARBY_RAIL_CORRIDOR_SUMMARY','UTILITY_GEOM_RAIL_CORRIDOR');
+        addFrom(raw,'railCrossing','Rail crossing','Rail X','#111827','NEARBY_RAIL_CROSSING_DISTANCE_M','NEARBY_RAIL_CROSSING_SUMMARY','', 'UTILITY_POINT_RAIL_CROSSING');
+      }
+    }catch(e){try{Diagnostics?.log?.('Utility route sidecar fallback failed',String(e?.message||e));}catch(_){}}
+    return list;
+  };
+  const oldShowPopup=ME.showPopupAssetUtilityContext;
+  ME.showPopupAssetUtilityContext=function(token='',ev=null){
+    try{if(ev){ev.preventDefault?.();ev.stopPropagation?.();if(window.L?.DomEvent)L.DomEvent.stop(ev);}}catch(_){ }
+    try{this.map?.closePopup?.();}catch(_){ }
+    return oldShowPopup?oldShowPopup.call(this,token,ev):false;
+  };
+  const oldShow=ME.showAssetUtilityContext;
+  ME.showAssetUtilityContext=function(a,opts={}){
+    if(!this.map||!window.L)return false;
+    if(!this.assetUtilityContextLayer)this.assetUtilityContextLayer=L.layerGroup().addTo(this.map);
+    this.assetUtilityContextLayer.clearLayers();
+    const ll=this.markerLatLng?.(a)||this.assetLatLng?.(a);
+    const list=this.utilityContextTypesForAsset(a);
+    if(!ll||!list.length){if(!opts.silent)UI?.toast?.('No nearby utility/cable context on this asset.');return false;}
+    const latlng=L.latLng(ll[0],ll[1]); const group=L.layerGroup().addTo(this.assetUtilityContextLayer);
+    const parseLine=(txt)=>String(txt||'').split('|').map(seg=>seg.split(';').map(p=>{const m=String(p||'').split(',').map(Number);return (m.length>=2&&Number.isFinite(m[0])&&Number.isFinite(m[1]))?[m[1],m[0]]:null;}).filter(Boolean)).filter(x=>x.length>=2);
+    const parsePoint=(txt)=>{const m=String(txt||'').trim().split(',').map(Number);return (m.length>=2&&Number.isFinite(m[0])&&Number.isFinite(m[1]))?[m[1],m[0]]:null;};
+    let bounds=L.latLngBounds([latlng]); let drewGeom=false;
+    const nearestPoint=(line)=>{let best=null,bd=Infinity; for(const p of line||[]){try{const d=latlng.distanceTo(L.latLng(p[0],p[1])); if(d<bd){bd=d;best=p;}}catch(_){}} return best;};
+    list.slice(0,10).forEach(c=>{
+      const color=c.color||'#1e6fb7'; const lines=parseLine(c.geomText);
+      if(lines.length){
+        lines.slice(0,5).forEach(line=>{
+          try{L.polyline(line,{color:'#fffaf0',weight:10,opacity:.98,interactive:false}).addTo(group);}catch(_){ }
+          try{L.polyline(line,{color,weight:5.5,opacity:.98,dashArray:c.type==='railCorridor'?'8 5':'',interactive:false}).addTo(group);}catch(_){ }
+          const near=nearestPoint(line); if(near)try{L.polyline([latlng,near],{color,weight:2.5,opacity:.9,dashArray:'2 6',interactive:false}).addTo(group);}catch(_){ }
+          try{line.forEach(p=>bounds.extend(p));}catch(_){ }
+        }); drewGeom=true;
+      }
+      const pt=parsePoint(c.pointText); if(pt){
+        try{L.polyline([latlng,pt],{color,weight:2.5,opacity:.9,dashArray:'2 6',interactive:false}).addTo(group);}catch(_){ }
+        try{L.circleMarker(pt,{radius:10,color:'#fffaf0',weight:4,fill:true,fillOpacity:.95,interactive:false}).addTo(group);}catch(_){ }
+        try{L.circleMarker(pt,{radius:6,color,weight:3,fill:true,fillOpacity:.95,interactive:false}).addTo(group);}catch(_){ }
+        try{bounds.extend(pt);}catch(_){ } drewGeom=true;
+      }
+    });
+    try{L.circleMarker(latlng,{radius:6,color:'#fffaf0',weight:4,fill:true,fillOpacity:.88,interactive:false}).addTo(group);}catch(_){ }
+    try{L.circleMarker(latlng,{radius:4,color:'#1f5b2d',weight:2,fill:true,fillOpacity:.95,interactive:false}).addTo(group);}catch(_){ }
+    const chips=list.slice(0,6).map(c=>`<span style="border-color:${esc(c.color||'#1e6fb7')}"><b>${esc(c.short||c.label)}</b>${c.distanceLabel?' '+esc(c.distanceLabel):''}${c.geomText||c.pointText?' · route':' · info'}</span>`).join('');
+    const html=`<div class="utility-context-callout v185"><div><b>Utility route</b><button type="button" onclick="window.MapEngine?.clearAssetUtilityContext?.(event)">×</button></div><div class="sub">${drewGeom?'Route snippet shown':'No route snippet imported for this asset'}</div><div class="utility-context-chips">${chips}</div></div>`;
+    try{L.marker(latlng,{icon:L.divIcon({className:'utility-context-icon',html,iconSize:[198,82],iconAnchor:[99,100]}),interactive:true,zIndexOffset:7200}).addTo(group);}catch(_){ }
+    if(opts.pan){try{if(drewGeom&&bounds.isValid())this.map.fitBounds(bounds.pad(.30),{maxZoom:19,animate:true,duration:.16});else this.map.panTo(latlng,{animate:true,duration:.16});}catch(_){}}
+    if(!opts.silent)UI?.toast?.(drewGeom?'Utility route snippet shown.':'No route snippet imported for this asset.');
+    return true;
+  };
+  ME.esaOverlayEnabled=function(){return localStorage.getItem('myMap.esaOverlayOn.v185')==='1';};
+  ME.setEsaOverlayEnabled=function(on){localStorage.setItem('myMap.esaOverlayOn.v185',on?'1':'0'); this.updateEsaOverlayToggle?.(); return this.refreshEsaOverlay?.();};
+  ME.ensureEsaToggle=function(){
+    if(document.getElementById('esaMapToggle'))return;
+    const mapEl=this.map?.getContainer?.()||document.getElementById('map'); if(!mapEl)return;
+    const b=document.createElement('button'); b.id='esaMapToggle'; b.className='esa-map-toggle'; b.type='button'; b.textContent='ESA'; b.title='Toggle faint Environmentally Sensitive Area overlay';
+    b.onclick=(e)=>{e.preventDefault();e.stopPropagation();this.setEsaOverlayEnabled(!this.esaOverlayEnabled());};
+    mapEl.appendChild(b); this.updateEsaOverlayToggle();
+  };
+  ME.updateEsaOverlayToggle=function(){const b=document.getElementById('esaMapToggle'); if(!b)return; const on=this.esaOverlayEnabled(); b.classList.toggle('on',on); b.textContent=on?'ESA ON':'ESA';};
+  ME.parseEsaPoly=function(txt){
+    return String(txt||'').split('|').map(ring=>ring.split(';').map(p=>{const m=String(p).split(',').map(Number);return (m.length>=2&&Number.isFinite(m[0])&&Number.isFinite(m[1]))?[m[1],m[0]]:null;}).filter(Boolean)).filter(r=>r.length>=3);
+  };
+  ME.esaOverlayRecords=function(){return (Array.isArray(App?.assets)?App.assets:[]).filter(a=>String(a?.kind||a?.raw?.KIND||a?.raw?.asset_type||'').toLowerCase()==='esa-overlay'||String(a?.raw?.KIND||'').toLowerCase()==='esa-overlay');};
+  ME.refreshEsaOverlay=function(){
+    if(!this.map||!window.L)return 0; this.ensureEsaToggle();
+    if(!this.esaOverlayLayer)this.esaOverlayLayer=L.layerGroup().addTo(this.map); this.esaOverlayLayer.clearLayers();
+    if(!this.esaOverlayEnabled())return 0;
+    const z=this.map.getZoom?.()||0; if(z<11){UI?.toast?.('Zoom in closer to show ESA overlay.');return 0;}
+    const recs=this.esaOverlayRecords(); if(!recs.length){UI?.toast?.('Import the myMap ESA overlay file first.');return 0;}
+    const b=this.map.getBounds?.()?.pad?.(0.15); if(!b)return 0; let drawn=0;
+    for(const a of recs){
+      if(drawn>=900)break;
+      const lat=Number(a.lat), lon=Number(a.lon); if(Number.isFinite(lat)&&Number.isFinite(lon)&&!b.contains([lat,lon]))continue;
+      const raw=a.raw||{}; const rings=this.parseEsaPoly(raw.ESA_GEOM_POLY||raw.ESA_GEOM||''); if(!rings.length)continue;
+      try{L.polygon(rings,{color:'#2e7d32',weight:1,opacity:.38,fillColor:'#2e7d32',fillOpacity:.12,interactive:false}).addTo(this.esaOverlayLayer); drawn++;}catch(_){ }
+    }
+    if(drawn>=900)UI?.toast?.('Showing nearest ESA areas only. Zoom in for more detail.');
+    return drawn;
+  };
+  const oldInit=ME.init;
+  ME.init=function(){const r=oldInit?oldInit.apply(this,arguments):undefined; try{this.ensureEsaToggle(); this.map?.on?.('moveend zoomend',()=>{if(this.esaOverlayEnabled())this.refreshEsaOverlay();}); setTimeout(()=>{this.ensureEsaToggle(); if(this.esaOverlayEnabled())this.refreshEsaOverlay();},700);}catch(_){ } return r;};
+})();
+
+
+/* myMap v3.1.189: processed ESA overlay import fix + no-popup utility route drawing. */
+(function(){
+  const ME=window.MapEngine;
+  if(!ME||ME.__esaRouteV186)return; ME.__esaRouteV186=true;
+
+  const clean=(v)=>String(v||'').toUpperCase().replace(/[^A-Z0-9]/g,'');
+  const normPole=(v)=>String(v||'').toUpperCase().replace(/^0+(\d)/,'$1').replace(/[^A-Z0-9/]/g,'');
+  const kindOf=(a)=>String(a?.kind||a?.raw?.KIND||a?.raw?.kind||a?.raw?.asset_type||'').toLowerCase();
+  const hasGeom=(raw)=>!!raw&&Object.entries(raw).some(([k,v])=>/^UTILITY_(?:GEOM|POINT)_/i.test(k)&&String(v??'').trim());
+  const isDrawSidecar=(a)=>kindOf(a)==='utility-draw-context'||String(a?.raw?.DRAW_CONTEXT_SIDECAR||'')==='1'||hasGeom(a?.raw||{});
+  const isEsaOverlay=(a)=>kindOf(a)==='esa-overlay'||String(a?.raw?.KIND||'').toLowerCase()==='esa-overlay'||!!(a?.raw?.ESA_GEOM_POLY||a?.raw?.ESA_GEOM);
+
+  const oldContextOnly=ME.isContextOnlyAsset;
+  ME.isContextOnlyAsset=function(a){
+    if(isEsaOverlay(a))return true;
+    try{return oldContextOnly?oldContextOnly.call(this,a):false;}catch(_){return false;}
+  };
+
+  const assetKeys=(a)=>{
+    const raw=a?.raw||{}, out=[];
+    const add=(l,p)=>{l=clean(l); p=normPole(p); if(l&&p){const k=l+'|'+p; if(!out.includes(k))out.push(k);}};
+    try{(SearchEngine?.lineRefsForAsset?SearchEngine.lineRefsForAsset(a,true):[]).forEach(r=>add(r.line,r.pole||r.structure||a?.poleNumber));}catch(_){}
+    add(a?.line,a?.poleNumber||a?.rawPole||a?.structure);
+    add(raw.LINE_NAME||raw.line_name||raw.trmsn_line_gis_label||raw.TRMSN_LINE_GIS_LABEL, raw.NAMEPLATE_ID_1||raw.pole||raw.POLE_NO||raw.STRUCTURE_LABEL);
+    const title=String(window.PopupEngine?.displayTitle?PopupEngine.displayTitle(a):(a?.label||''));
+    const m=title.match(/^(.+?)\s*[-\s]+0*([A-Z0-9/]+)$/i);
+    if(m)add(m[1],m[2]);
+    return out;
+  };
+  const sidOf=(a)=>clean(SearchEngine?.structureSid?.(a)||a?.structureId||a?.raw?.structure_id||a?.raw?.STRUCTURE_ID||'');
+  const distM=(a,b)=>{
+    const la=Number(a?.lat), lo=Number(a?.lon), lb=Number(b?.lat), lob=Number(b?.lon);
+    if(!Number.isFinite(la)||!Number.isFinite(lo)||!Number.isFinite(lb)||!Number.isFinite(lob))return Infinity;
+    const R=6371000, rad=n=>n*Math.PI/180, dLat=rad(lb-la), dLon=rad(lob-lo);
+    const h=Math.sin(dLat/2)**2+Math.cos(rad(la))*Math.cos(rad(lb))*Math.sin(dLon/2)**2;
+    return 2*R*Math.asin(Math.min(1,Math.sqrt(h)));
+  };
+  const rawVal=(raw,key)=>{for(const [k,v] of Object.entries(raw||{})){if(k.toUpperCase()===key.toUpperCase()&&String(v??'').trim())return String(v).trim();}return '';};
+
+  const oldTypes=ME.utilityContextTypesForAsset;
+  ME.utilityContextTypesForAsset=function(a){
+    let list=[]; try{list=oldTypes?oldTypes.call(this,a):[];}catch(_){list=[];}
+    try{
+      const keys=assetKeys(a), sid=sidOf(a);
+      const sidecars=[];
+      const assets=Array.isArray(window.App?.assets)?App.assets:[];
+      for(const b of assets){
+        if(!b||!isDrawSidecar(b))continue;
+        let match=false;
+        const bk=assetKeys(b);
+        if(keys.length&&bk.some(k=>keys.includes(k)))match=true;
+        if(!match&&sid&&sidOf(b)===sid)match=true;
+        if(!match&&distM(a,b)<=35)match=true; // fallback for private files with different labels
+        if(match)sidecars.push(b);
+        if(sidecars.length>=20)break;
+      }
+      const upsert=(raw,type,label,short,color,distKey,sumKey,geomKey,pointKey='')=>{
+        const g=rawVal(raw,geomKey), p=pointKey?rawVal(raw,pointKey):'';
+        if(!g&&!p)return;
+        let item=list.find(x=>x.type===type);
+        const dist=rawVal(raw,distKey); const n=Number(String(dist||'').replace(/[^0-9.\-]/g,''));
+        if(!item){
+          item={type,label,short,color,distanceM:Number.isFinite(n)?n:15,distanceLabel:Number.isFinite(n)?(Math.round(n*10)/10)+' m':'nearby',detail:rawVal(raw,sumKey),fallbackRadius:15};
+          list.push(item);
+        }
+        if(g&&!item.geomText)item.geomText=g;
+        if(p&&!item.pointText)item.pointText=p;
+        if(!item.distanceLabel&&Number.isFinite(n))item.distanceLabel=(Math.round(n*10)/10)+' m';
+      };
+      for(const b of sidecars){
+        const raw=b.raw||{};
+        upsert(raw,'hvCable','HV underground cable','HVUG','#7c3aed','NEARBY_HV_CABLE_DISTANCE_M','NEARBY_HV_CABLE_TYPE','UTILITY_GEOM_HVUG');
+        upsert(raw,'water','Water pipe','Water','#1976d2','NEARBY_WATER_DISTANCE_M','NEARBY_WATER_SUMMARY','UTILITY_GEOM_WATER');
+        upsert(raw,'sewer','Sewer pressure main','Sewer','#795548','NEARBY_SEWER_DISTANCE_M','NEARBY_SEWER_SUMMARY','UTILITY_GEOM_SEWER');
+        upsert(raw,'railCorridor','Rail corridor','Rail','#111827','NEARBY_RAIL_CORRIDOR_DISTANCE_M','NEARBY_RAIL_CORRIDOR_SUMMARY','UTILITY_GEOM_RAIL_CORRIDOR');
+        upsert(raw,'railCrossing','Rail crossing','Rail X','#111827','NEARBY_RAIL_CROSSING_DISTANCE_M','NEARBY_RAIL_CROSSING_SUMMARY','', 'UTILITY_POINT_RAIL_CROSSING');
+      }
+    }catch(e){try{Diagnostics?.log?.('v186 sidecar route lookup failed',String(e?.message||e));}catch(_){}}
+    return list;
+  };
+
+  ME.ensureUtilityRouteClear=function(){
+    const mapEl=this.map?.getContainer?.()||document.getElementById('map'); if(!mapEl)return null;
+    let b=document.getElementById('utilityRouteClearBtn');
+    if(!b){
+      b=document.createElement('button');
+      b.id='utilityRouteClearBtn'; b.className='utility-route-clear'; b.type='button'; b.textContent='Clear utility';
+      b.onclick=(e)=>{e.preventDefault();e.stopPropagation();this.clearAssetUtilityContext?.(e);};
+      b.style.display='none';
+      mapEl.appendChild(b);
+    }
+    return b;
+  };
+  const oldClear=ME.clearAssetUtilityContext;
+  ME.clearAssetUtilityContext=function(ev){
+    try{if(ev){ev.preventDefault?.();ev.stopPropagation?.(); if(window.L?.DomEvent)L.DomEvent.stop(ev);}}catch(_){}
+    try{this.assetUtilityContextLayer?.clearLayers?.();}catch(_){}
+    const b=document.getElementById('utilityRouteClearBtn'); if(b){b.style.display='none'; b.classList.remove('on');}
+    try{return oldClear?oldClear.call(this,ev):false;}catch(_){return false;}
+  };
+
+  ME.showAssetUtilityContext=function(a,opts={}){
+    if(!this.map||!window.L)return false;
+    if(!this.assetUtilityContextLayer)this.assetUtilityContextLayer=L.layerGroup().addTo(this.map);
+    this.assetUtilityContextLayer.clearLayers();
+    const ll=this.markerLatLng?.(a)||this.assetLatLng?.(a);
+    const list=(this.utilityContextTypesForAsset(a)||[]).filter(Boolean);
+    if(!ll||!list.length){if(!opts.silent)UI?.toast?.('No nearby utility/cable context on this asset.');return false;}
+    const latlng=L.latLng(ll[0],ll[1]); const group=L.layerGroup().addTo(this.assetUtilityContextLayer);
+    const parseLine=(txt)=>String(txt||'').split('|').map(seg=>seg.split(';').map(p=>{const m=String(p||'').split(',').map(Number);return (m.length>=2&&Number.isFinite(m[0])&&Number.isFinite(m[1]))?[m[1],m[0]]:null;}).filter(Boolean)).filter(x=>x.length>=2);
+    const parsePoint=(txt)=>{const m=String(txt||'').trim().split(',').map(Number);return (m.length>=2&&Number.isFinite(m[0])&&Number.isFinite(m[1]))?[m[1],m[0]]:null;};
+    const nearestPoint=(line)=>{let best=null,bd=Infinity; for(const p of line||[]){try{const d=latlng.distanceTo(L.latLng(p[0],p[1])); if(d<bd){bd=d;best=p;}}catch(_){}} return best;};
+    let bounds=L.latLngBounds([latlng]), drew=0;
+    for(const c of list.slice(0,12)){
+      const color=c.color||'#1e6fb7';
+      const lines=parseLine(c.geomText);
+      for(const line of lines.slice(0,6)){
+        try{L.polyline(line,{color:'#fffaf0',weight:10,opacity:.98,interactive:false}).addTo(group);}catch(_){}
+        try{L.polyline(line,{color,weight:5.5,opacity:.98,dashArray:c.type==='railCorridor'?'8 5':'',interactive:false}).addTo(group);}catch(_){}
+        const near=nearestPoint(line); if(near)try{L.polyline([latlng,near],{color,weight:2.5,opacity:.9,dashArray:'2 6',interactive:false}).addTo(group);}catch(_){}
+        try{line.forEach(p=>bounds.extend(p));}catch(_){}
+        drew++;
+      }
+      const pt=parsePoint(c.pointText);
+      if(pt){
+        try{L.polyline([latlng,pt],{color,weight:2.5,opacity:.9,dashArray:'2 6',interactive:false}).addTo(group);}catch(_){}
+        try{L.circleMarker(pt,{radius:10,color:'#fffaf0',weight:4,fill:true,fillOpacity:.95,interactive:false}).addTo(group);}catch(_){}
+        try{L.circleMarker(pt,{radius:6,color,weight:3,fill:true,fillOpacity:.95,interactive:false}).addTo(group);}catch(_){}
+        try{bounds.extend(pt);}catch(_){}
+        drew++;
+      }
+    }
+    if(!drew){
+      this.assetUtilityContextLayer.clearLayers();
+      if(!opts.silent)UI?.toast?.('No route snippet imported for this asset. Reimport the Utility Route Snippets sidecar.');
+      return false;
+    }
+    try{L.circleMarker(latlng,{radius:6,color:'#fffaf0',weight:4,fill:true,fillOpacity:.88,interactive:false}).addTo(group);}catch(_){}
+    try{L.circleMarker(latlng,{radius:4,color:'#1f5b2d',weight:2,fill:true,fillOpacity:.95,interactive:false}).addTo(group);}catch(_){}
+    const b=this.ensureUtilityRouteClear?.(); if(b){b.style.display='block'; b.classList.add('on');}
+    if(opts.pan!==false){try{if(bounds.isValid())this.map.fitBounds(bounds.pad(.35),{maxZoom:19,animate:true,duration:.16});}catch(_){}}
+    if(!opts.silent)UI?.toast?.('Utility route snippet shown.');
+    return true;
+  };
+
+  const oldShowPopup=ME.showPopupAssetUtilityContext;
+  ME.showPopupAssetUtilityContext=function(token='',ev=null){
+    try{if(ev){ev.preventDefault?.();ev.stopPropagation?.(); if(window.L?.DomEvent)L.DomEvent.stop(ev);}}catch(_){}
+    let asset=null;
+    try{asset=this.popupAssetForToken?this.popupAssetForToken(token):(window.App?.selectedAsset||null);}catch(_){asset=window.App?.selectedAsset||null;}
+    try{this.map?.closePopup?.();}catch(_){}
+    if(asset)return this.showAssetUtilityContext(asset,{pan:true});
+    return oldShowPopup?oldShowPopup.call(this,token,ev):false;
+  };
+
+  ME.esaOverlayRecords=function(){
+    const assets=Array.isArray(window.App?.assets)?App.assets:[];
+    return assets.filter(a=>isEsaOverlay(a)&&String(a?.raw?.ESA_GEOM_POLY||a?.raw?.ESA_GEOM||'').trim());
+  };
+  ME.refreshEsaOverlay=function(){
+    if(!this.map||!window.L)return 0; this.ensureEsaToggle?.();
+    if(!this.esaOverlayLayer)this.esaOverlayLayer=L.layerGroup().addTo(this.map); this.esaOverlayLayer.clearLayers();
+    if(!this.esaOverlayEnabled?.())return 0;
+    const z=this.map.getZoom?.()||0; if(z<11){UI?.toast?.('Zoom in closer to show ESA overlay.');return 0;}
+    const recs=this.esaOverlayRecords(); if(!recs.length){UI?.toast?.('ESA overlay file was not imported as active data. Delete the old skipped ESA entries and reimport the v186 ESA overlay ZIP.');return 0;}
+    const b=this.map.getBounds?.()?.pad?.(0.15); if(!b)return 0; let drawn=0;
+    for(const a of recs){
+      if(drawn>=900)break;
+      const lat=Number(a.lat), lon=Number(a.lon); if(Number.isFinite(lat)&&Number.isFinite(lon)&&!b.contains([lat,lon]))continue;
+      const raw=a.raw||{}; const rings=(this.parseEsaPoly?this.parseEsaPoly(raw.ESA_GEOM_POLY||raw.ESA_GEOM||''):[]);
+      if(!rings.length)continue;
+      try{L.polygon(rings,{color:'#2e7d32',weight:1,opacity:.34,fillColor:'#2e7d32',fillOpacity:.10,interactive:false}).addTo(this.esaOverlayLayer); drawn++;}catch(_){}
+    }
+    if(drawn>=900)UI?.toast?.('Showing nearest ESA areas only. Zoom in for more detail.');
+    return drawn;
+  };
+})();
+
+
+/* myMap v3.1.189: clearer ESA colour, faster utility popup lookup, stable asset popups. */
+(function(){
+  const ME=window.MapEngine;
+  if(!ME||ME.__v187FastPopupEsa)return; ME.__v187FastPopupEsa=true;
+  const ESA_COLOR='#b018b8';
+  const ESA_FILL='#d332c9';
+  const clean=(v)=>String(v??'').trim();
+  const isNo=(v)=>/^\s*no\s+/i.test(clean(v));
+  const rawVal=(raw,key)=>{for(const [k,v] of Object.entries(raw||{})){if(k.toUpperCase()===key.toUpperCase()&&clean(v))return clean(v);}return '';};
+  const contextRe=/^(NEARBY_(?:HV(?:_CABLE)?|WATER|SEWER|RAIL|ESA|PETROLEUM|GAS)_|UTILITY_(?:DETAIL|RADIUS|MARKUP|DRAWABLE|GEOM|POINT)_)/i;
+  const rawHasContext=(r)=>!!r&&Object.entries(r||{}).some(([k,v])=>contextRe.test(k)&&clean(v)&&!/^no\s+.+within/i.test(clean(v)));
+  const fmtDist=(v,fallback='')=>{const n=Number(String(v||'').replace(/[^0-9.\-]/g,''));return Number.isFinite(n)?`${Math.round(n*10)/10} m`:(fallback||clean(v));};
+  const assetCache=new WeakMap();
+  let cacheSize=-1;
+  const clearFastCache=()=>{try{assetCache.clear?.();}catch(_){ } cacheSize=Array.isArray(window.App?.assets)?App.assets.length:0;};
+
+  const oldInvalidate=ME.invalidateUtilityContextIndex;
+  ME.invalidateUtilityContextIndex=function(){try{clearFastCache();}catch(_){} return oldInvalidate?oldInvalidate.call(this):undefined;};
+
+  function mergedContextRaw(me,a){
+    const raw=a?.raw||{};
+    try{
+      const best=me.lookupUtilityContextAsset?.(a);
+      if(best&&rawHasContext(best.raw||{})){
+        const merged={...(best.raw||{}),...(raw||{})};
+        // Preserve route geometry and missing utility fields from sidecar/context records,
+        // even when the private pole record already has Water/ESA/HV text.
+        for(const [k,v] of Object.entries(best.raw||{})){
+          if(/^UTILITY_(?:GEOM|POINT)_/i.test(k)&&clean(v))merged[k]=v;
+          if(/^NEARBY_/i.test(k)&&clean(v)&&(!clean(merged[k])||/^no\s+/i.test(clean(merged[k]))))merged[k]=v;
+        }
+        return merged;
+      }
+    }catch(_){ }
+    return raw;
+  }
+  function parseTypesFromRaw(raw){
+    const out=[];
+    const add=(type,label,short,color,distKey,summaryKey,extraKeys=[],fallbackRadius=15,geomKey='',pointKey='')=>{
+      const dist=rawVal(raw,distKey);
+      const status=rawVal(raw,distKey.replace(/_DISTANCE_M$/i,'_STATUS'));
+      const summary=rawVal(raw,summaryKey);
+      const geom=geomKey?rawVal(raw,geomKey):'';
+      const point=pointKey?rawVal(raw,pointKey):'';
+      if((!dist&&!summary&&!geom&&!point)||isNo(status)||isNo(summary))return;
+      const detailParts=[];
+      if(summary)detailParts.push(summary);
+      for(const key of extraKeys){const v=rawVal(raw,key); if(v&&!detailParts.includes(v))detailParts.push(v);}
+      const num=Number(String(dist||'').replace(/[^0-9.\-]/g,''));
+      out.push({type,label,short,color,distanceM:Number.isFinite(num)?num:fallbackRadius,distanceLabel:dist?fmtDist(dist):(status||`within ${fallbackRadius} m`),detail:detailParts.slice(0,3).join(' · '),fallbackRadius,geomText:geom,pointText:point});
+    };
+    const hvDist=rawVal(raw,'NEARBY_HV_CABLE_DISTANCE_M');
+    const hvStatus=rawVal(raw,'NEARBY_HV_CABLE_STATUS');
+    const hvGeom=rawVal(raw,'UTILITY_GEOM_HVUG');
+    if((hvDist||rawVal(raw,'NEARBY_HV_CABLE_KV')||rawVal(raw,'NEARBY_HV_CABLE_TYPE')||hvGeom)&&!isNo(hvStatus)){
+      const parts=[rawVal(raw,'NEARBY_HV_CABLE_KV'),rawVal(raw,'NEARBY_HV_CABLE_PHASES'),rawVal(raw,'NEARBY_HV_CABLE_TYPE')||'HVUG',rawVal(raw,'NEARBY_HV_CABLE_NETWORK')].filter(Boolean);
+      const num=Number(String(hvDist||'').replace(/[^0-9.\-]/g,''));
+      out.push({type:'hvCable',label:'HV underground cable',short:'HVUG',color:'#7c3aed',distanceM:Number.isFinite(num)?num:15,distanceLabel:hvDist?fmtDist(hvDist):'within 15 m',detail:parts.join(' · '),fallbackRadius:15,geomText:hvGeom,pointText:''});
+    }
+    add('water','Water pipe','Water','#1976d2','NEARBY_WATER_DISTANCE_M','NEARBY_WATER_SUMMARY',['NEARBY_WATER_TYPE','NEARBY_WATER_NETWORK','NEARBY_WATER_SIZE','NEARBY_WATER_MATERIAL'],15,'UTILITY_GEOM_WATER');
+    add('sewer','Sewer pressure main','Sewer','#795548','NEARBY_SEWER_DISTANCE_M','NEARBY_SEWER_SUMMARY',['NEARBY_SEWER_MAIN','NEARBY_SEWER_DIAMETER','NEARBY_SEWER_MATERIAL'],15,'UTILITY_GEOM_SEWER');
+    add('railCorridor','Rail corridor','Rail','#111827','NEARBY_RAIL_CORRIDOR_DISTANCE_M','NEARBY_RAIL_CORRIDOR_SUMMARY',['NEARBY_RAIL_CORRIDOR_TYPE'],15,'UTILITY_GEOM_RAIL_CORRIDOR');
+    add('railCrossing','Rail crossing','Rail X','#111827','NEARBY_RAIL_CROSSING_DISTANCE_M','NEARBY_RAIL_CROSSING_SUMMARY',['NEARBY_RAIL_CROSSING_ROAD','NEARBY_RAIL_CROSSING_TYPE','NEARBY_RAIL_CROSSING_PROTECTION'],25,'','UTILITY_POINT_RAIL_CROSSING');
+    add('esa','Environmentally sensitive area','ESA',ESA_COLOR,'NEARBY_ESA_DISTANCE_M','NEARBY_ESA_SUMMARY',['NEARBY_ESA_TYPE','NEARBY_ESA_FLAGS'],15);
+    add('petroleum','Petroleum/gas title area','Gas','#d97706','NEARBY_PETROLEUM_DISTANCE_M','NEARBY_PETROLEUM_SUMMARY',['NEARBY_PETROLEUM_NAME','NEARBY_PETROLEUM_HOLDER','NEARBY_PETROLEUM_PURPOSE'],15);
+    return out;
+  }
+  ME.utilityContextTypesForAsset=function(a){
+    try{
+      const n=Array.isArray(window.App?.assets)?App.assets.length:0;
+      if(cacheSize!==n){try{assetCache.clear();}catch(_){} cacheSize=n;}
+      if(a&&assetCache.has(a))return assetCache.get(a);
+      const raw=mergedContextRaw(this,a);
+      const list=parseTypesFromRaw(raw);
+      if(a)assetCache.set(a,list);
+      return list;
+    }catch(e){try{Diagnostics?.log?.('v187 utility context fast lookup failed',String(e?.message||e));}catch(_){} return [];}
+  };
+  ME.hasUtilityContext=function(a){try{return this.utilityContextTypesForAsset(a).length>0;}catch(_){return false;}};
+  ME.hasUtilityRouteContext=function(a){try{return this.utilityContextTypesForAsset(a).some(c=>c&&(c.geomText||c.pointText));}catch(_){return false;}};
+  ME.toggleEsaFromPopup=function(ev){
+    try{if(ev){ev.preventDefault?.();ev.stopPropagation?.(); if(window.L?.DomEvent)L.DomEvent.stop(ev);}}catch(_){ }
+    try{this.setEsaOverlayEnabled?.(true); this.refreshEsaOverlay?.(); UI?.toast?.('ESA layer on.');}catch(_){ }
+    return false;
+  };
+
+  // Use stronger purple ESA overlay so it is visible over green parks/bushland but still translucent.
+  ME.refreshEsaOverlay=function(){
+    if(!this.map||!window.L)return 0; this.ensureEsaToggle?.();
+    if(!this.esaOverlayLayer)this.esaOverlayLayer=L.layerGroup().addTo(this.map); this.esaOverlayLayer.clearLayers();
+    if(!this.esaOverlayEnabled?.())return 0;
+    const z=this.map.getZoom?.()||0; if(z<11){UI?.toast?.('Zoom in closer to show ESA overlay.');return 0;}
+    const recs=this.esaOverlayRecords?.()||[]; if(!recs.length){UI?.toast?.('ESA overlay file not active. Reimport the v186/v187 ESA overlay ZIP if needed.');return 0;}
+    const b=this.map.getBounds?.()?.pad?.(0.12); if(!b)return 0; let drawn=0;
+    for(const a of recs){
+      if(drawn>=900)break;
+      const lat=Number(a.lat), lon=Number(a.lon); if(Number.isFinite(lat)&&Number.isFinite(lon)&&!b.contains([lat,lon]))continue;
+      const raw=a.raw||{}; const rings=(this.parseEsaPoly?this.parseEsaPoly(raw.ESA_GEOM_POLY||raw.ESA_GEOM||''):[]);
+      if(!rings.length)continue;
+      try{L.polygon(rings,{color:ESA_COLOR,weight:1.5,opacity:.68,fillColor:ESA_FILL,fillOpacity:.18,interactive:false}).addTo(this.esaOverlayLayer); drawn++;}catch(_){ }
+    }
+    if(drawn>=900)UI?.toast?.('Showing nearest ESA areas only. Zoom in for more detail.');
+    return drawn;
+  };
+
+  const oldInit=ME.init;
+  ME.init=function(){
+    const r=oldInit?oldInit.apply(this,arguments):undefined;
+    try{this.scheduleHeliPopupAutoClose=function(ev){try{if(ev?.popup)clearTimeout(ev.popup._mymapAutoCloseTimer);}catch(_){} return;};}catch(_){ }
+    try{this.map?.options&&(this.map.options.closePopupOnClick=false); this.map?.on?.('popupopen',ev=>{try{if(ev?.popup){ev.popup.options.closeOnClick=false;ev.popup.options.autoClose=true;clearTimeout(ev.popup._mymapAutoCloseTimer);}}catch(_){}});}catch(_){ }
+    return r;
+  };
+
+  // Avoid popup auto-collapse after Details/More info is opened; preserve user state during Leaflet updates.
+  document.addEventListener('toggle',function(ev){
+    try{
+      const d=ev.target; if(!d||!d.matches?.('.asset-popup details.popup-more-details'))return;
+      d.dataset.userOpen=d.open?'1':'0';
+      setTimeout(()=>{try{if(d.dataset.userOpen==='1'&&!d.open)d.open=true;}catch(_){}},600);
+      setTimeout(()=>{try{if(d.dataset.userOpen==='1'&&!d.open)d.open=true;}catch(_){}},1800);
+    }catch(_){ }
+  },true);
+})();
+
+
+/* myMap v3.1.189: one-popup asset behaviour + utility sidecar merge hardening. */
+(function(){
+  const ME=window.MapEngine;
+  if(!ME||ME.__v188PopupUtilityFix)return; ME.__v188PopupUtilityFix=true;
+  const clean=(v)=>String(v??'').trim();
+  const rawVal=(raw,key)=>{try{for(const [k,v] of Object.entries(raw||{})){if(k.toUpperCase()===key.toUpperCase()&&clean(v))return clean(v);}}catch(_){ } return '';};
+  const contextRe=/^(NEARBY_(?:HV(?:_CABLE)?|WATER|SEWER|RAIL|ESA|PETROLEUM|GAS)_|UTILITY_(?:DETAIL|RADIUS|MARKUP|DRAWABLE|GEOM|POINT)_)/i;
+  const rawHasContext=(r)=>{try{return !!r&&Object.entries(r||{}).some(([k,v])=>contextRe.test(k)&&clean(v)&&!/^no\s+.+within/i.test(clean(v)));}catch(_){return false;}};
+  const hasDrawable=(r)=>{try{return !!r&&Object.entries(r||{}).some(([k,v])=>/^UTILITY_(?:GEOM|POINT)_/i.test(k)&&clean(v));}catch(_){return false;}};
+  const fmtDist=(v,fallback='')=>{const n=Number(String(v||'').replace(/[^0-9.\-]/g,''));return Number.isFinite(n)?`${Math.round(n*10)/10} m`:(fallback||clean(v));};
+
+  ME.closeOtherPopups=function(opened=null){
+    try{
+      const closeLayer=(layer)=>{try{const p=layer?.getPopup?.(); if(p&&p!==opened&&layer.isPopupOpen?.())layer.closePopup();}catch(_){}};
+      this.markerLayer?.eachLayer?.(closeLayer);
+      this.connectedLineLayer?.eachLayer?.(closeLayer);
+      this.routeLayer?.eachLayer?.(closeLayer);
+    }catch(_){ }
+  };
+
+  const oldPopupOptions188=ME.popupOptions;
+  ME.popupOptions=function(){
+    const o=oldPopupOptions188?oldPopupOptions188.apply(this,arguments):{};
+    return Object.assign({},o,{autoClose:true,closeOnClick:false});
+  };
+
+  const oldInit188=ME.init;
+  ME.init=function(){
+    const r=oldInit188?oldInit188.apply(this,arguments):undefined;
+    try{
+      if(this.map&&!this.__v188OnePopupHook){
+        this.__v188OnePopupHook=true;
+        this.map.options.closePopupOnClick=false;
+        this.map.on('popupopen',ev=>{
+          try{
+            if(ev?.popup){ev.popup.options.autoClose=true; ev.popup.options.closeOnClick=false; clearTimeout(ev.popup._mymapAutoCloseTimer);}
+            this.closeOtherPopups?.(ev?.popup||null);
+          }catch(_){ }
+        });
+      }
+    }catch(_){ }
+    return r;
+  };
+
+  function mergedRaw(me,a){
+    const raw=a?.raw||{};
+    let best=null;
+    try{best=me.lookupUtilityContextAsset?.(a)||null;}catch(_){ }
+    if(best&&rawHasContext(best.raw||{})){
+      const braw=best.raw||{};
+      const merged={...(braw||{}),...(raw||{})};
+      // Always bring drawable route snippets across from the hidden sidecar.
+      for(const [k,v] of Object.entries(braw)){
+        if(/^UTILITY_(?:GEOM|POINT)_/i.test(k)&&clean(v))merged[k]=v;
+        if(/^NEARBY_/i.test(k)&&clean(v)&&(!clean(merged[k])||/^no\s+/i.test(clean(merged[k]))))merged[k]=v;
+      }
+      return merged;
+    }
+    return raw;
+  }
+
+  function parseTypesFromRaw(raw){
+    const out=[];
+    const isNo=(v)=>/^\s*no\s+/i.test(clean(v));
+    const add=(type,label,short,color,distKey,summaryKey,extraKeys=[],fallbackRadius=15,geomKey='',pointKey='')=>{
+      const dist=rawVal(raw,distKey), status=rawVal(raw,distKey.replace(/_DISTANCE_M$/i,'_STATUS')), summary=rawVal(raw,summaryKey);
+      const geom=geomKey?rawVal(raw,geomKey):'', point=pointKey?rawVal(raw,pointKey):'';
+      if((!dist&&!summary&&!geom&&!point)||isNo(status)||isNo(summary))return;
+      const detailParts=[]; if(summary)detailParts.push(summary);
+      for(const key of extraKeys){const v=rawVal(raw,key); if(v&&!detailParts.includes(v))detailParts.push(v);}
+      const num=Number(String(dist||'').replace(/[^0-9.\-]/g,''));
+      out.push({type,label,short,color,distanceM:Number.isFinite(num)?num:fallbackRadius,distanceLabel:dist?fmtDist(dist):(status||`within ${fallbackRadius} m`),detail:detailParts.slice(0,3).join(' · '),fallbackRadius,geomText:geom,pointText:point});
+    };
+    const hvDist=rawVal(raw,'NEARBY_HV_CABLE_DISTANCE_M'), hvStatus=rawVal(raw,'NEARBY_HV_CABLE_STATUS'), hvGeom=rawVal(raw,'UTILITY_GEOM_HVUG');
+    if((hvDist||rawVal(raw,'NEARBY_HV_CABLE_KV')||rawVal(raw,'NEARBY_HV_CABLE_TYPE')||hvGeom)&&!isNo(hvStatus)){
+      const parts=[rawVal(raw,'NEARBY_HV_CABLE_KV'),rawVal(raw,'NEARBY_HV_CABLE_PHASES'),rawVal(raw,'NEARBY_HV_CABLE_TYPE')||'HVUG',rawVal(raw,'NEARBY_HV_CABLE_NETWORK')].filter(Boolean);
+      const num=Number(String(hvDist||'').replace(/[^0-9.\-]/g,''));
+      out.push({type:'hvCable',label:'HV underground cable',short:'HVUG',color:'#7c3aed',distanceM:Number.isFinite(num)?num:15,distanceLabel:hvDist?fmtDist(hvDist):'within 15 m',detail:parts.join(' · '),fallbackRadius:15,geomText:hvGeom,pointText:''});
+    }
+    add('water','Water pipe','Water','#1976d2','NEARBY_WATER_DISTANCE_M','NEARBY_WATER_SUMMARY',['NEARBY_WATER_TYPE','NEARBY_WATER_NETWORK','NEARBY_WATER_SIZE','NEARBY_WATER_MATERIAL'],15,'UTILITY_GEOM_WATER');
+    add('sewer','Sewer pressure main','Sewer','#795548','NEARBY_SEWER_DISTANCE_M','NEARBY_SEWER_SUMMARY',['NEARBY_SEWER_MAIN','NEARBY_SEWER_DIAMETER','NEARBY_SEWER_MATERIAL'],15,'UTILITY_GEOM_SEWER');
+    add('railCorridor','Rail corridor','Rail','#111827','NEARBY_RAIL_CORRIDOR_DISTANCE_M','NEARBY_RAIL_CORRIDOR_SUMMARY',['NEARBY_RAIL_CORRIDOR_TYPE'],15,'UTILITY_GEOM_RAIL_CORRIDOR');
+    add('railCrossing','Rail crossing','Rail X','#111827','NEARBY_RAIL_CROSSING_DISTANCE_M','NEARBY_RAIL_CROSSING_SUMMARY',['NEARBY_RAIL_CROSSING_ROAD','NEARBY_RAIL_CROSSING_TYPE','NEARBY_RAIL_CROSSING_PROTECTION'],25,'','UTILITY_POINT_RAIL_CROSSING');
+    add('esa','Environmentally sensitive area','ESA','#b018b8','NEARBY_ESA_DISTANCE_M','NEARBY_ESA_SUMMARY',['NEARBY_ESA_TYPE','NEARBY_ESA_FLAGS'],15);
+    add('petroleum','Petroleum/gas title area','Gas','#d97706','NEARBY_PETROLEUM_DISTANCE_M','NEARBY_PETROLEUM_SUMMARY',['NEARBY_PETROLEUM_NAME','NEARBY_PETROLEUM_HOLDER','NEARBY_PETROLEUM_PURPOSE'],15);
+    return out;
+  }
+
+  ME.utilityContextTypesForAsset=function(a){
+    try{
+      const raw=mergedRaw(this,a);
+      return parseTypesFromRaw(raw);
+    }catch(e){try{Diagnostics?.log?.('v188 utility context lookup failed',String(e?.message||e));}catch(_){} return [];}
+  };
+  ME.hasUtilityContext=function(a){try{return this.utilityContextTypesForAsset(a).length>0;}catch(_){return false;}};
+  ME.hasUtilityRouteContext=function(a){try{return this.utilityContextTypesForAsset(a).some(c=>c&&(c.geomText||c.pointText));}catch(_){return false;}};
+
+  const oldShow188=ME.showPopupAssetUtilityContext;
+  ME.showPopupAssetUtilityContext=function(token='',ev=null){
+    try{if(ev){ev.preventDefault?.();ev.stopPropagation?.();ev.stopImmediatePropagation?.(); if(window.L?.DomEvent)L.DomEvent.stop(ev);}}catch(_){ }
+    let asset=null;
+    try{asset=this.popupAssetForToken?this.popupAssetForToken(token):(this.popupAssetRegistry&&this.popupAssetRegistry.get(decodeURIComponent(String(token||''))));}catch(_){ }
+    if(!asset)asset=window.App?.selectedAsset||null;
+    try{this.map?.closePopup?.(); this.closeOtherPopups?.(null);}catch(_){ }
+    if(asset)return this.showAssetUtilityContext(asset,{pan:true});
+    try{return oldShow188?oldShow188.call(this,token,ev):false;}catch(e){try{UI?.toast?.('Utility route failed to open.');Diagnostics?.log?.('Utility route button error',String(e?.message||e));}catch(_){} return false;}
+  };
+})();
+
+/* myMap v3.1.189: clearer utility/ESA map explanation and route-vs-info handling. */
+(function(){
+  const ME=window.MapEngine;
+  if(!ME||ME.__v189UtilityClarity)return; ME.__v189UtilityClarity=true;
+  const clean=(v)=>String(v??'').trim();
+  const esc=(v)=>String(v??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+  const isRoute=(c)=>!!(clean(c?.geomText)||clean(c?.pointText));
+  const isEsa=(c)=>String(c?.type||'').toLowerCase()==='esa';
+  const isAreaInfo=(c)=>['esa','petroleum'].includes(String(c?.type||'').toLowerCase());
+  const utilityName=(c)=>clean(c?.short)||clean(c?.label)||'Utility';
+  const routeText=(n)=>`${n} route line${n===1?'':'s'}`;
+
+  ME.utilityContextStatsForAsset=function(a){
+    let list=[];
+    try{list=(this.utilityContextTypesForAsset?.(a)||[]).filter(Boolean);}catch(_){list=[];}
+    const routes=list.filter(isRoute);
+    const esa=list.filter(isEsa);
+    const infoOnly=list.filter(c=>!isRoute(c));
+    return {list,routes,esa,infoOnly,routeCount:routes.length,infoCount:infoOnly.length,hasEsa:esa.length>0};
+  };
+
+  ME.ensureUtilityLegend=function(){
+    const mapEl=this.map?.getContainer?.()||document.getElementById('map');
+    if(!mapEl)return null;
+    let el=document.getElementById('utilityClarityPanel');
+    if(!el){
+      el=document.createElement('div');
+      el.id='utilityClarityPanel';
+      el.className='utility-clarity-panel';
+      el.style.display='none';
+      mapEl.appendChild(el);
+    }
+    return el;
+  };
+
+  ME.setUtilityLegend=function({asset=null,list=[],routes=[],infoOnly=[],drewSegments=0,esaOn=false}={}){
+    const el=this.ensureUtilityLegend?.();
+    if(!el)return;
+    const routeNames=[...new Set((routes||[]).map(utilityName).filter(Boolean))];
+    const infoNames=[...new Set((infoOnly||[]).map(c=>`${utilityName(c)} ${isAreaInfo(c)?'area/info':'info only'}`).filter(Boolean))];
+    const chips=(list||[]).slice(0,8).map(c=>{
+      const cls=isRoute(c)?'route':(isEsa(c)?'area':'info');
+      const tag=isRoute(c)?'line':(isEsa(c)?'area':'info');
+      const dist=clean(c?.distanceLabel);
+      return `<span class="${cls}" style="--u:${esc(c?.color||'#1f5b2d')}"><b>${esc(utilityName(c))}</b><em>${esc(tag)}${dist?' · '+esc(dist):''}</em></span>`;
+    }).join('');
+    const routeLine=routeNames.length?`<div class="utility-clarity-line ok"><b>Lines shown:</b> ${esc(routeNames.join(', '))}${drewSegments?` <small>(${drewSegments})</small>`:''}</div>`:'<div class="utility-clarity-line muted"><b>Lines shown:</b> none</div>';
+    const infoLine=infoNames.length?`<div class="utility-clarity-line muted"><b>No line drawn:</b> ${esc(infoNames.join(', '))}</div>`:'';
+    const esaLine=esaOn?'<div class="utility-clarity-line area"><b>ESA:</b> overlay turned on for area context</div>':'';
+    const note=(routeNames.length&&infoNames.length)?'<div class="utility-clarity-note">Some utilities are only stored as nearby info, so only the ones with imported route geometry draw as lines.</div>':'';
+    el.innerHTML=`<div class="utility-clarity-head"><b>Utilities near asset</b><button type="button" onclick="return window.MapEngine?.clearAssetUtilityContext?.(event);">×</button></div><div class="utility-clarity-chips">${chips}</div>${routeLine}${infoLine}${esaLine}${note}`;
+    el.style.display='block';
+  };
+
+  const oldEnsureClear189=ME.ensureUtilityRouteClear;
+  ME.ensureUtilityRouteClear=function(){
+    const b=oldEnsureClear189?oldEnsureClear189.call(this):null;
+    if(b){b.textContent='Clear utilities'; b.classList.add('utility-route-clear-v189');}
+    return b;
+  };
+
+  const oldClear189=ME.clearAssetUtilityContext;
+  ME.clearAssetUtilityContext=function(ev=null){
+    try{if(ev){ev.preventDefault?.();ev.stopPropagation?.();ev.stopImmediatePropagation?.(); if(window.L?.DomEvent)L.DomEvent.stop(ev);}}catch(_){ }
+    try{this.assetUtilityContextLayer?.clearLayers?.();}catch(_){ }
+    const panel=document.getElementById('utilityClarityPanel'); if(panel)panel.style.display='none';
+    const b=document.getElementById('utilityRouteClearBtn'); if(b){b.style.display='none'; b.classList.remove('on');}
+    try{return oldClear189?oldClear189.call(this,null):false;}catch(_){return false;}
+  };
+
+  ME.showAssetUtilityContext=function(a,opts={}){
+    try{
+      if(!this.map||!window.L)return false;
+      if(!this.assetUtilityContextLayer)this.assetUtilityContextLayer=L.layerGroup().addTo(this.map);
+      this.assetUtilityContextLayer.clearLayers();
+      const ll=this.markerLatLng?.(a)||this.assetLatLng?.(a);
+      const stats=this.utilityContextStatsForAsset?.(a)||{list:[],routes:[],infoOnly:[],hasEsa:false};
+      const list=stats.list||[];
+      if(!ll||!list.length){if(!opts.silent)UI?.toast?.('No nearby utility/cable context on this asset.');return false;}
+      const latlng=L.latLng(ll[0],ll[1]);
+      const group=L.layerGroup().addTo(this.assetUtilityContextLayer);
+      const parseLine=(txt)=>String(txt||'').split('|').map(seg=>seg.split(';').map(p=>{const m=String(p||'').split(',').map(Number);return (m.length>=2&&Number.isFinite(m[0])&&Number.isFinite(m[1]))?[m[1],m[0]]:null;}).filter(Boolean)).filter(x=>x.length>=2);
+      const parsePoint=(txt)=>{const m=String(txt||'').trim().split(',').map(Number);return (m.length>=2&&Number.isFinite(m[0])&&Number.isFinite(m[1]))?[m[1],m[0]]:null;};
+      const nearestPoint=(line)=>{let best=null,bd=Infinity; for(const p of line||[]){try{const d=latlng.distanceTo(L.latLng(p[0],p[1])); if(d<bd){bd=d;best=p;}}catch(_){}} return best;};
+      let bounds=L.latLngBounds([latlng]);
+      let drewSegments=0;
+      const routeTypes=[];
+      const infoOnly=[];
+      for(const c of list.slice(0,12)){
+        const color=clean(c.color)||'#1e6fb7';
+        let drewThis=false;
+        const lines=parseLine(c.geomText);
+        for(const line of lines.slice(0,6)){
+          try{L.polyline(line,{color:'#fffaf0',weight:12,opacity:.92,interactive:false}).addTo(group);}catch(_){ }
+          try{L.polyline(line,{color,weight:6,opacity:.98,dashArray:String(c.type||'').includes('rail')?'8 5':'',interactive:false}).addTo(group);}catch(_){ }
+          const near=nearestPoint(line); if(near){
+            try{L.polyline([latlng,near],{color:'#fffaf0',weight:5,opacity:.85,dashArray:'2 8',interactive:false}).addTo(group);}catch(_){ }
+            try{L.polyline([latlng,near],{color,weight:2.5,opacity:.95,dashArray:'2 8',interactive:false}).addTo(group);}catch(_){ }
+          }
+          try{line.forEach(p=>bounds.extend(p));}catch(_){ }
+          drewThis=true; drewSegments++;
+        }
+        const pt=parsePoint(c.pointText);
+        if(pt){
+          try{L.polyline([latlng,pt],{color:'#fffaf0',weight:5,opacity:.85,dashArray:'2 8',interactive:false}).addTo(group);}catch(_){ }
+          try{L.polyline([latlng,pt],{color,weight:2.5,opacity:.95,dashArray:'2 8',interactive:false}).addTo(group);}catch(_){ }
+          try{L.circleMarker(pt,{radius:10,color:'#fffaf0',weight:4,fill:true,fillOpacity:.95,interactive:false}).addTo(group);}catch(_){ }
+          try{L.circleMarker(pt,{radius:6,color,weight:3,fill:true,fillOpacity:.95,interactive:false}).addTo(group);}catch(_){ }
+          try{bounds.extend(pt);}catch(_){ }
+          drewThis=true; drewSegments++;
+        }
+        if(drewThis)routeTypes.push(c); else infoOnly.push(c);
+      }
+      let esaOn=false;
+      if(stats.hasEsa){
+        try{this.setEsaOverlayEnabled?.(true); this.refreshEsaOverlay?.(); esaOn=true;}catch(_){ }
+      }
+      try{L.circleMarker(latlng,{radius:6,color:'#fffaf0',weight:4,fill:true,fillOpacity:.88,interactive:false}).addTo(group);}catch(_){ }
+      try{L.circleMarker(latlng,{radius:4,color:'#1f5b2d',weight:2,fill:true,fillOpacity:.95,interactive:false}).addTo(group);}catch(_){ }
+      this.setUtilityLegend?.({asset:a,list,routes:routeTypes,infoOnly,drewSegments,esaOn});
+      const b=this.ensureUtilityRouteClear?.(); if(b){b.style.display='block'; b.classList.add('on');}
+      if(opts.pan!==false){
+        try{
+          if(drewSegments&&bounds.isValid())this.map.fitBounds(bounds.pad(.32),{maxZoom:19,animate:true,duration:.16});
+          else this.map.panTo(latlng,{animate:true,duration:.16});
+        }catch(_){ }
+      }
+      if(!opts.silent){
+        if(drewSegments)UI?.toast?.(`${routeText(routeTypes.length)} shown. Other utilities may be info/area only.`);
+        else if(esaOn)UI?.toast?.('ESA area shown. No utility route line imported for this asset.');
+        else UI?.toast?.('Utility info shown. No route line imported for this asset.');
+      }
+      return true;
+    }catch(e){
+      try{Diagnostics?.log?.('v189 show utility failed',String(e?.message||e));}catch(_){ }
+      try{UI?.toast?.('Utility display failed.');}catch(_){ }
+      return false;
+    }
+  };
+
+  ME.showPopupAssetUtilityContext=function(token='',ev=null){
+    try{if(ev){ev.preventDefault?.();ev.stopPropagation?.();ev.stopImmediatePropagation?.(); if(window.L?.DomEvent)L.DomEvent.stop(ev);}}catch(_){ }
+    let asset=null;
+    try{
+      const raw=decodeURIComponent(String(token||''));
+      asset=(this.popupAssetForToken?this.popupAssetForToken(raw):null)||(this.popupAssetRegistry&&this.popupAssetRegistry.get(raw))||(window.App?.selectedAsset||null);
+    }catch(_){asset=window.App?.selectedAsset||null;}
+    try{this.map?.closePopup?.(); this.closeOtherPopups?.(null);}catch(_){ }
+    if(asset)return this.showAssetUtilityContext(asset,{pan:true});
+    try{UI?.toast?.('Asset not found for utility display.');}catch(_){ }
+    return false;
+  };
+
+  const oldInit189=ME.init;
+  ME.init=function(){
+    const r=oldInit189?oldInit189.apply(this,arguments):undefined;
+    try{
+      if(this.map&&!this.__v189PopupHook){
+        this.__v189PopupHook=true;
+        this.map.options.closePopupOnClick=false;
+        this.map.on('popupopen',ev=>{try{this.closeOtherPopups?.(ev?.popup||null); if(ev?.popup){ev.popup.options.autoClose=true;ev.popup.options.closeOnClick=false;clearTimeout(ev.popup._mymapAutoCloseTimer);}}catch(_){ }});
+      }
+    }catch(_){ }
+    return r;
+  };
+})();
+
+/* myMap v3.1.190: simpler map utility explanation panel. */
+(function(){
+  const ME=window.MapEngine;
+  if(!ME||ME.__v190UtilityLegend)return; ME.__v190UtilityLegend=true;
+  const clean=(v)=>String(v??'').trim();
+  const esc=(v)=>String(v??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+  const isRoute=(c)=>!!(clean(c?.geomText)||clean(c?.pointText));
+  const isEsa=(c)=>String(c?.type||'').toLowerCase()==='esa';
+  const name=(c)=>clean(c?.short)||clean(c?.label)||'Utility';
+  ME.setUtilityLegend=function({list=[],routes=[],infoOnly=[],drewSegments=0,esaOn=false}={}){
+    const el=this.ensureUtilityLegend?.();
+    if(!el)return;
+    const shown=[...new Set((routes||[]).map(name).filter(Boolean))];
+    const noLine=(infoOnly||[]).filter(Boolean);
+    const rows=(list||[]).slice(0,8).map(c=>{
+      const cls=isRoute(c)?'route':(isEsa(c)?'area':'info');
+      const state=isRoute(c)?'line shown':(isEsa(c)?'area overlay':'info only');
+      const dist=clean(c?.distanceLabel);
+      return `<span class="${cls}" style="--u:${esc(c?.color||'#1f5b2d')}"><b>${esc(name(c))}</b><em>${esc(state)}${dist?' · '+esc(dist):''}</em></span>`;
+    }).join('');
+    const line=shown.length?`<div class="utility-clarity-line ok"><b>Drawn:</b> ${esc(shown.join(', '))}${drewSegments?` <small>(${drewSegments})</small>`:''}</div>`:'<div class="utility-clarity-line muted"><b>Drawn:</b> no route line</div>';
+    const info=noLine.length?`<div class="utility-clarity-line muted"><b>Not drawn as a line:</b> ${esc([...new Set(noLine.map(c=>name(c))).values()].join(', '))}</div>`:'';
+    const esa=esaOn?'<div class="utility-clarity-line area"><b>ESA:</b> area overlay enabled</div>':'';
+    const note=noLine.length?'<div class="utility-clarity-note">Info-only utilities are nearby context only; no route geometry is imported for those rows.</div>':'';
+    el.innerHTML=`<div class="utility-clarity-head"><b>Utility detail</b><button type="button" onclick="return window.MapEngine?.clearAssetUtilityContext?.(event);">×</button></div><div class="utility-clarity-chips">${rows}</div>${line}${info}${esa}${note}`;
+    el.style.display='block';
+  };
+})();
+
+/* myMap v3.1.191: click-outside closes popup, clearer ESA toggle, utility lines only draw actual routes. */
+(function(){
+  const ME=window.MapEngine;
+  if(!ME||ME.__v191PopupEsaUtility)return; ME.__v191PopupEsaUtility=true;
+  const clean=(v)=>String(v??'').trim();
+  const isRoute=(c)=>!!(clean(c?.geomText)||clean(c?.pointText));
+  const isEsa=(c)=>String(c?.type||'').toLowerCase()==='esa';
+  const name=(c)=>clean(c?.short)||clean(c?.label)||'Utility';
+
+  ME.updateEsaOverlayToggle=function(){
+    const b=document.getElementById('esaMapToggle'); if(!b)return;
+    const on=!!this.esaOverlayEnabled?.();
+    b.classList.toggle('on',on);
+    b.setAttribute('aria-pressed',on?'true':'false');
+    b.innerHTML=`<span>ESA layer</span><small>${on?'ON':'OFF'}</small>`;
+    b.title=on?'Turn ESA overlay off':'Turn ESA overlay on';
+  };
+
+  ME.ensureEsaToggle=function(){
+    const mapEl=this.map?.getContainer?.()||document.getElementById('map'); if(!mapEl)return null;
+    let b=document.getElementById('esaMapToggle');
+    if(!b){
+      b=document.createElement('button'); b.id='esaMapToggle'; b.className='esa-map-toggle'; b.type='button';
+      mapEl.appendChild(b);
+    }
+    b.onclick=(e)=>{try{e.preventDefault();e.stopPropagation();e.stopImmediatePropagation?.(); if(window.L?.DomEvent)L.DomEvent.stop(e);}catch(_){ }
+      const next=!this.esaOverlayEnabled?.(); this.setEsaOverlayEnabled?.(next);
+      try{UI?.toast?.(next?'ESA layer on.':'ESA layer off.');}catch(_){ }
+      return false;
+    };
+    this.updateEsaOverlayToggle();
+    return b;
+  };
+
+  ME.setEsaOverlayEnabled=function(on){
+    try{
+      if(on){
+        const recs=this.esaOverlayRecords?.()||[];
+        if(!recs.length){localStorage.setItem('myMap.esaOverlayOn.v185','0'); this.updateEsaOverlayToggle?.(); UI?.toast?.('Import the ESA overlay file first.'); return 0;}
+      }
+      localStorage.setItem('myMap.esaOverlayOn.v185',on?'1':'0');
+      this.updateEsaOverlayToggle?.();
+      const n=this.refreshEsaOverlay?.()||0;
+      return n;
+    }catch(_){return 0;}
+  };
+
+  ME.toggleEsaFromPopup=function(ev){
+    try{if(ev){ev.preventDefault?.();ev.stopPropagation?.();ev.stopImmediatePropagation?.(); if(window.L?.DomEvent)L.DomEvent.stop(ev);}}catch(_){ }
+    this.setEsaOverlayEnabled?.(!this.esaOverlayEnabled?.());
+    return false;
+  };
+
+  ME.setUtilityLegend=function(){
+    const panel=document.getElementById('utilityClarityPanel'); if(panel)panel.style.display='none';
+  };
+
+  ME.showAssetUtilityContext=function(a,opts={}){
+    try{
+      if(!this.map||!window.L)return false;
+      if(!this.assetUtilityContextLayer)this.assetUtilityContextLayer=L.layerGroup().addTo(this.map);
+      this.assetUtilityContextLayer.clearLayers();
+      const ll=this.markerLatLng?.(a)||this.assetLatLng?.(a);
+      const all=(this.utilityContextTypesForAsset?.(a)||[]).filter(Boolean);
+      const routes=all.filter(isRoute);
+      if(!ll||!all.length){if(!opts.silent)UI?.toast?.('No nearby utility/cable context on this asset.');return false;}
+      if(!routes.length){
+        if(all.some(isEsa)){this.setEsaOverlayEnabled?.(true); if(!opts.silent)UI?.toast?.('ESA layer on. No route line for this asset.'); return true;}
+        if(!opts.silent)UI?.toast?.('Nearby utility info only. No route line imported for this asset.');
+        return false;
+      }
+      try{this.map?.closePopup?.(); this.closeOtherPopups?.(null);}catch(_){ }
+      const latlng=L.latLng(ll[0],ll[1]);
+      const group=L.layerGroup().addTo(this.assetUtilityContextLayer);
+      const parseLine=(txt)=>String(txt||'').split('|').map(seg=>seg.split(';').map(p=>{const m=String(p||'').split(',').map(Number);return (m.length>=2&&Number.isFinite(m[0])&&Number.isFinite(m[1]))?[m[1],m[0]]:null;}).filter(Boolean)).filter(x=>x.length>=2);
+      const parsePoint=(txt)=>{const m=String(txt||'').trim().split(',').map(Number);return (m.length>=2&&Number.isFinite(m[0])&&Number.isFinite(m[1]))?[m[1],m[0]]:null;};
+      const nearestPoint=(line)=>{let best=null,bd=Infinity; for(const p of line||[]){try{const d=latlng.distanceTo(L.latLng(p[0],p[1])); if(d<bd){bd=d;best=p;}}catch(_){}} return best;};
+      let bounds=L.latLngBounds([latlng]); let segs=0;
+      for(const c of routes.slice(0,8)){
+        const color=clean(c.color)||'#1e6fb7';
+        for(const line of parseLine(c.geomText).slice(0,6)){
+          try{L.polyline(line,{color:'#fffaf0',weight:12,opacity:.92,interactive:false}).addTo(group);}catch(_){ }
+          try{L.polyline(line,{color,weight:6,opacity:.98,dashArray:String(c.type||'').includes('rail')?'8 5':'',interactive:false}).addTo(group);}catch(_){ }
+          const near=nearestPoint(line); if(near){
+            try{L.polyline([latlng,near],{color:'#fffaf0',weight:5,opacity:.85,dashArray:'2 8',interactive:false}).addTo(group);}catch(_){ }
+            try{L.polyline([latlng,near],{color,weight:2.5,opacity:.95,dashArray:'2 8',interactive:false}).addTo(group);}catch(_){ }
+          }
+          try{line.forEach(p=>bounds.extend(p));}catch(_){ }
+          segs++;
+        }
+        const pt=parsePoint(c.pointText);
+        if(pt){
+          try{L.polyline([latlng,pt],{color:'#fffaf0',weight:5,opacity:.85,dashArray:'2 8',interactive:false}).addTo(group);}catch(_){ }
+          try{L.polyline([latlng,pt],{color,weight:2.5,opacity:.95,dashArray:'2 8',interactive:false}).addTo(group);}catch(_){ }
+          try{L.circleMarker(pt,{radius:10,color:'#fffaf0',weight:4,fill:true,fillOpacity:.95,interactive:false}).addTo(group);}catch(_){ }
+          try{L.circleMarker(pt,{radius:6,color,weight:3,fill:true,fillOpacity:.95,interactive:false}).addTo(group);}catch(_){ }
+          try{bounds.extend(pt);}catch(_){ }
+          segs++;
+        }
+      }
+      try{L.circleMarker(latlng,{radius:6,color:'#fffaf0',weight:4,fill:true,fillOpacity:.88,interactive:false}).addTo(group);}catch(_){ }
+      try{L.circleMarker(latlng,{radius:4,color:'#1f5b2d',weight:2,fill:true,fillOpacity:.95,interactive:false}).addTo(group);}catch(_){ }
+      const clear=this.ensureUtilityRouteClear?.();
+      if(clear){
+        clear.textContent=routes.length===1?`Clear ${name(routes[0])} line`:'Clear utility lines';
+        clear.style.display='block'; clear.classList.add('on');
+      }
+      if(opts.pan!==false){try{if(segs&&bounds.isValid())this.map.fitBounds(bounds.pad(.32),{maxZoom:19,animate:true,duration:.16});else this.map.panTo(latlng,{animate:true,duration:.16});}catch(_){ }}
+      if(!opts.silent)UI?.toast?.(routes.length===1?`${name(routes[0])} route shown.`:`${routes.length} utility routes shown.`);
+      return true;
+    }catch(e){try{Diagnostics?.log?.('v191 utility route failed',String(e?.message||e));UI?.toast?.('Utility route failed.');}catch(_){ } return false;}
+  };
+
+  const oldPopupOptions=ME.popupOptions;
+  ME.popupOptions=function(){
+    const o=oldPopupOptions?oldPopupOptions.apply(this,arguments):{};
+    return Object.assign({},o,{autoClose:true,closeOnClick:true});
+  };
+
+  const oldInit=ME.init;
+  ME.init=function(){
+    const r=oldInit?oldInit.apply(this,arguments):undefined;
+    try{
+      this.ensureEsaToggle?.(); this.updateEsaOverlayToggle?.();
+      if(this.map&&!this.__v191ClickOutsidePopup){
+        this.__v191ClickOutsidePopup=true;
+        this.map.options.closePopupOnClick=true;
+        this.map.on('popupopen',ev=>{try{if(ev?.popup){ev.popup.options.autoClose=true; ev.popup.options.closeOnClick=true; clearTimeout(ev.popup._mymapAutoCloseTimer);} this.closeOtherPopups?.(ev?.popup||null);}catch(_){ }});
+        this.map.on('click',ev=>{
+          try{
+            const t=ev?.originalEvent?.target;
+            if(t?.closest?.('.leaflet-popup,.leaflet-marker-icon,.leaflet-interactive,.map-control,.toolbar,.floating-controls,.fab,.esa-map-toggle,.utility-route-clear'))return;
+            this.map.closePopup(); this.closeOtherPopups?.(null);
+          }catch(_){ }
+        });
+      }
+    }catch(_){ }
+    return r;
+  };
+})();
+
+/* myMap v3.1.192: multi-route utility merge + ESA moved into Map Layers with purple tree status button. */
+(function(){
+  const ME=window.MapEngine;
+  if(!ME||ME.__v192UtilityEsaMenu)return; ME.__v192UtilityEsaMenu=true;
+  const clean=(v)=>String(v??'').trim();
+  const rawVal=(raw,key)=>{try{for(const [k,v] of Object.entries(raw||{})){if(k.toUpperCase()===key.toUpperCase()&&clean(v))return clean(v);}}catch(_){ } return '';};
+  const isNo=(v)=>/^\s*no\s+/i.test(clean(v));
+  const fmtDist=(v,fallback='')=>{const n=Number(String(v||'').replace(/[^0-9.\-]/g,''));return Number.isFinite(n)?`${Math.round(n*10)/10} m`:(fallback||clean(v));};
+  const contextRe=/^(NEARBY_(?:HV(?:_CABLE)?|WATER|SEWER|RAIL|ESA|PETROLEUM|GAS)_|UTILITY_(?:DETAIL|RADIUS|MARKUP|DRAWABLE|GEOM|POINT)_)/i;
+  const hasContext=(r)=>{try{return !!r&&Object.entries(r||{}).some(([k,v])=>contextRe.test(k)&&clean(v)&&!isNo(v));}catch(_){return false;}};
+  const hasGeom=(r)=>{try{return !!r&&Object.entries(r||{}).some(([k,v])=>/^UTILITY_(?:GEOM|POINT)_/i.test(k)&&clean(v));}catch(_){return false;}};
+  const isSidecar=(a)=>String(a?.kind||a?.raw?.KIND||a?.raw?.kind||a?.raw?.asset_type||'').toLowerCase()==='utility-draw-context'||String(a?.raw?.DRAW_CONTEXT_SIDECAR||'')==='1';
+  const distM=(a,b)=>{try{const lat1=Number(a?.lat),lon1=Number(a?.lon),lat2=Number(b?.lat),lon2=Number(b?.lon); if(!Number.isFinite(lat1)||!Number.isFinite(lon1)||!Number.isFinite(lat2)||!Number.isFinite(lon2))return Infinity; const R=6371000,rad=n=>n*Math.PI/180,dLat=rad(lat2-lat1),dLon=rad(lon2-lon1),h=Math.sin(dLat/2)**2+Math.cos(rad(lat1))*Math.cos(rad(lat2))*Math.sin(dLon/2)**2; return 2*R*Math.asin(Math.min(1,Math.sqrt(h)));}catch(_){return Infinity;}};
+
+  ME.lookupUtilityContextAssets=function(a){
+    try{
+      const assets=Array.isArray(window.App?.assets)?App.assets:[];
+      const idx=(this.utilityContextIndex&&this.utilityContextIndexSize===assets.length)?this.utilityContextIndex:this.buildUtilityContextIndex?.();
+      const keys=this.utilityContextLookupKeys?.(a)||[];
+      const seen=new Set(), out=[];
+      for(const k of keys){
+        for(const b of (idx?.get?.(k)||[])){
+          if(!b||b===a||seen.has(b))continue;
+          const r=b.raw||{}; if(!hasContext(r))continue;
+          const d=distM(a,b);
+          if(!(d<=45||!Number.isFinite(d)))continue;
+          seen.add(b);
+          out.push({asset:b,d,score:(hasGeom(r)?-10000:0)+(isSidecar(b)?-1000:0)+(Number.isFinite(d)?d:999)});
+        }
+      }
+      out.sort((x,y)=>x.score-y.score);
+      return out.slice(0,16).map(x=>x.asset);
+    }catch(e){return [];}
+  };
+
+  function mergedRaw(me,a){
+    const merged={...(a?.raw||{})};
+    const matches=me.lookupUtilityContextAssets?.(a)||[];
+    // Merge every matched context/sidecar record. This allows HVUG + Water + Sewer route snippets to coexist.
+    for(const b of matches.reverse()){
+      const r=b?.raw||{};
+      for(const [k,v] of Object.entries(r)){
+        if(!contextRe.test(k)||!clean(v)||isNo(v))continue;
+        if(/^UTILITY_(?:GEOM|POINT)_/i.test(k)){ merged[k]=v; continue; }
+        if(!clean(merged[k])||isNo(merged[k])) merged[k]=v;
+      }
+    }
+    // Then let the actual clicked/private asset override identity fields, but not route geometry.
+    for(const [k,v] of Object.entries(a?.raw||{})){
+      if(/^UTILITY_(?:GEOM|POINT)_/i.test(k)&&clean(v))merged[k]=v;
+    }
+    return merged;
+  }
+
+  function parseTypes(raw){
+    const out=[];
+    const add=(type,label,short,color,distKey,summaryKey,extraKeys=[],fallbackRadius=15,geomKey='',pointKey='')=>{
+      const dist=rawVal(raw,distKey), status=rawVal(raw,distKey.replace(/_DISTANCE_M$/i,'_STATUS')), summary=rawVal(raw,summaryKey);
+      const geom=geomKey?rawVal(raw,geomKey):'', point=pointKey?rawVal(raw,pointKey):'';
+      if((!dist&&!summary&&!geom&&!point)||isNo(status)||isNo(summary))return;
+      const detailParts=[]; if(summary)detailParts.push(summary);
+      for(const key of extraKeys){const v=rawVal(raw,key); if(v&&!detailParts.includes(v))detailParts.push(v);}
+      const num=Number(String(dist||'').replace(/[^0-9.\-]/g,''));
+      out.push({type,label,short,color,distanceM:Number.isFinite(num)?num:fallbackRadius,distanceLabel:dist?fmtDist(dist):(status||`within ${fallbackRadius} m`),detail:detailParts.slice(0,3).join(' · '),fallbackRadius,geomText:geom,pointText:point});
+    };
+    const hvDist=rawVal(raw,'NEARBY_HV_CABLE_DISTANCE_M'), hvStatus=rawVal(raw,'NEARBY_HV_CABLE_STATUS'), hvGeom=rawVal(raw,'UTILITY_GEOM_HVUG');
+    if((hvDist||rawVal(raw,'NEARBY_HV_CABLE_KV')||rawVal(raw,'NEARBY_HV_CABLE_TYPE')||hvGeom)&&!isNo(hvStatus)){
+      const parts=[rawVal(raw,'NEARBY_HV_CABLE_KV'),rawVal(raw,'NEARBY_HV_CABLE_PHASES'),rawVal(raw,'NEARBY_HV_CABLE_TYPE')||'HVUG',rawVal(raw,'NEARBY_HV_CABLE_NETWORK')].filter(Boolean);
+      const num=Number(String(hvDist||'').replace(/[^0-9.\-]/g,''));
+      out.push({type:'hvCable',label:'HV underground cable',short:'HVUG',color:'#7c3aed',distanceM:Number.isFinite(num)?num:15,distanceLabel:hvDist?fmtDist(hvDist):'within 15 m',detail:parts.join(' · '),fallbackRadius:15,geomText:hvGeom,pointText:''});
+    }
+    add('water','Water pipe','Water','#1976d2','NEARBY_WATER_DISTANCE_M','NEARBY_WATER_SUMMARY',['NEARBY_WATER_TYPE','NEARBY_WATER_NETWORK','NEARBY_WATER_SIZE','NEARBY_WATER_MATERIAL'],15,'UTILITY_GEOM_WATER');
+    add('sewer','Sewer pressure main','Sewer','#795548','NEARBY_SEWER_DISTANCE_M','NEARBY_SEWER_SUMMARY',['NEARBY_SEWER_MAIN','NEARBY_SEWER_DIAMETER','NEARBY_SEWER_MATERIAL'],15,'UTILITY_GEOM_SEWER');
+    add('railCorridor','Rail corridor','Rail','#111827','NEARBY_RAIL_CORRIDOR_DISTANCE_M','NEARBY_RAIL_CORRIDOR_SUMMARY',['NEARBY_RAIL_CORRIDOR_TYPE'],15,'UTILITY_GEOM_RAIL_CORRIDOR');
+    add('railCrossing','Rail crossing','Rail X','#111827','NEARBY_RAIL_CROSSING_DISTANCE_M','NEARBY_RAIL_CROSSING_SUMMARY',['NEARBY_RAIL_CROSSING_ROAD','NEARBY_RAIL_CROSSING_TYPE','NEARBY_RAIL_CROSSING_PROTECTION'],25,'','UTILITY_POINT_RAIL_CROSSING');
+    add('esa','Environmentally sensitive area','ESA','#b018b8','NEARBY_ESA_DISTANCE_M','NEARBY_ESA_SUMMARY',['NEARBY_ESA_TYPE','NEARBY_ESA_FLAGS'],15);
+    add('petroleum','Petroleum/gas title area','Gas','#d97706','NEARBY_PETROLEUM_DISTANCE_M','NEARBY_PETROLEUM_SUMMARY',['NEARBY_PETROLEUM_NAME','NEARBY_PETROLEUM_HOLDER','NEARBY_PETROLEUM_PURPOSE'],15);
+    return out;
+  }
+
+  ME.utilityContextTypesForAsset=function(a){
+    try{return parseTypes(mergedRaw(this,a));}
+    catch(e){try{Diagnostics?.log?.('v192 utility context lookup failed',String(e?.message||e));}catch(_){} return [];}
+  };
+  ME.hasUtilityContext=function(a){try{return this.utilityContextTypesForAsset(a).length>0;}catch(_){return false;}};
+  ME.hasUtilityRouteContext=function(a){try{return this.utilityContextTypesForAsset(a).some(c=>c&&(clean(c.geomText)||clean(c.pointText)));}catch(_){return false;}};
+
+  ME.ensureEsaLayerMenu=function(){
+    const body=document.getElementById('baseLayersBody'); if(!body)return null;
+    let btn=document.getElementById('esaLayerToggleMenuBtn');
+    if(!btn){
+      btn=document.createElement('button'); btn.id='esaLayerToggleMenuBtn'; btn.type='button'; btn.className='base-layer-toggle esa-layer-menu-toggle';
+      btn.innerHTML='<span>ESA Toggle</span><small>OFF</small>';
+      body.appendChild(btn);
+    }
+    if(!btn.__esaBound){btn.__esaBound=true; btn.addEventListener('click',(ev)=>{try{ev.preventDefault();ev.stopPropagation();}catch(_){ } this.setEsaOverlayEnabled?.(!this.esaOverlayEnabled?.()); return false;});}
+    return btn;
+  };
+
+  ME.ensureEsaTreeButton=function(){
+    let b=document.getElementById('esaTreeBtn');
+    if(!b){
+      b=document.createElement('button'); b.id='esaTreeBtn'; b.type='button'; b.className='esa-tree-btn hidden'; b.title='Environment / ESA overlay on — tap to turn off'; b.setAttribute('aria-label','Environment / ESA overlay on — tap to turn off');
+      b.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 3.2c-2.1 0-3.8 1.7-3.8 3.8 0 .3 0 .6.1.9A4.6 4.6 0 0 0 5 12.3c0 2.5 2 4.5 4.5 4.5h1.1v3.8h2.8v-3.8h1.1c2.5 0 4.5-2 4.5-4.5 0-2.1-1.4-3.8-3.3-4.3.1-.3.1-.6.1-.9 0-2.2-1.7-3.9-3.8-3.9Z"/><path d="M10.6 16.6 8.5 14.5M13.4 16.6l2.3-2.4"/></svg>';
+      b.addEventListener('click',(ev)=>{try{ev.preventDefault();ev.stopPropagation();ev.stopImmediatePropagation?.(); if(window.L?.DomEvent)L.DomEvent.stop(ev);}catch(_){ } this.setEsaOverlayEnabled?.(false); return false;});
+      document.body.appendChild(b);
+    }
+    return b;
+  };
+
+  ME.updateEsaOverlayToggle=function(){
+    const on=!!this.esaOverlayEnabled?.();
+    const menu=this.ensureEsaLayerMenu?.();
+    if(menu){menu.classList.toggle('on',on); menu.setAttribute('aria-pressed',on?'true':'false'); const small=menu.querySelector('small'); if(small)small.textContent=on?'ON':'OFF';}
+    const tree=this.ensureEsaTreeButton?.();
+    if(tree){
+      const alert=document.getElementById('hvTxAlertBtn');
+      const alertVisible=!!(alert&&!alert.classList.contains('hidden'));
+      tree.classList.toggle('below-alert',alertVisible);
+      tree.classList.toggle('hidden',!on);
+    }
+    const old=document.getElementById('esaMapToggle'); if(old)old.style.display='none';
+  };
+
+  ME.ensureEsaToggle=function(){this.ensureEsaLayerMenu?.(); this.ensureEsaTreeButton?.(); this.updateEsaOverlayToggle?.(); return document.getElementById('esaTreeBtn');};
+
+  ME.setEsaOverlayEnabled=function(on){
+    try{
+      if(on){
+        const recs=this.esaOverlayRecords?.()||[];
+        if(!recs.length){localStorage.setItem('myMap.esaOverlayOn.v185','0'); this.updateEsaOverlayToggle?.(); UI?.toast?.('Import the ESA overlay file first.'); return 0;}
+      }
+      localStorage.setItem('myMap.esaOverlayOn.v185',on?'1':'0');
+      const n=this.refreshEsaOverlay?.()||0;
+      this.updateEsaOverlayToggle?.();
+      return n;
+    }catch(_){this.updateEsaOverlayToggle?.(); return 0;}
+  };
+
+  ME.toggleEsaFromPopup=function(ev){
+    try{if(ev){ev.preventDefault?.();ev.stopPropagation?.();ev.stopImmediatePropagation?.(); if(window.L?.DomEvent)L.DomEvent.stop(ev);}}catch(_){ }
+    this.setEsaOverlayEnabled?.(!this.esaOverlayEnabled?.()); return false;
+  };
+
+  const oldInit=ME.init;
+  ME.init=function(){
+    const r=oldInit?oldInit.apply(this,arguments):undefined;
+    try{
+      this.ensureEsaToggle?.();
+      if(!this.__v192EsaButtonWatch){
+        this.__v192EsaButtonWatch=true;
+        const alert=document.getElementById('hvTxAlertBtn');
+        if(alert&&window.MutationObserver){new MutationObserver(()=>this.updateEsaOverlayToggle?.()).observe(alert,{attributes:true,attributeFilter:['class']});}
+      }
+    }catch(_){ }
+    return r;
+  };
+
+  // Keep Map Layers panel status current whenever it is rendered/opened.
+  setTimeout(()=>{try{ME.ensureEsaToggle?.();}catch(_){}},500);
+})();
+
+/* myMap v3.1.193: ESA quick-toggle placement + red right-rail clear utility button */
+(function(){
+  const ME=window.MapEngine;
+  if(!ME||ME.__v193PopupControlsFix)return; ME.__v193PopupControlsFix=true;
+  const visible=(el)=>!!(el&&!(el.classList&&el.classList.contains('hidden'))&&getComputedStyle(el).display!=='none'&&getComputedStyle(el).visibility!=='hidden');
+
+  ME.updateUtilityRouteClearPosition=function(){
+    const b=document.getElementById('utilityRouteClearBtn');
+    if(!b)return;
+    b.classList.add('right-rail-clear');
+    const alert=document.getElementById('hvTxAlertBtn');
+    const tree=document.getElementById('esaTreeBtn');
+    const alertOn=visible(alert);
+    const esaOn=visible(tree);
+    b.classList.toggle('below-alert',alertOn);
+    b.classList.toggle('below-esa',esaOn);
+  };
+
+  const oldEnsureClear=ME.ensureUtilityRouteClear;
+  ME.ensureUtilityRouteClear=function(){
+    let b=oldEnsureClear?oldEnsureClear.call(this):document.getElementById('utilityRouteClearBtn');
+    if(!b){
+      const mapEl=this.map?.getContainer?.()||document.getElementById('map')||document.body;
+      b=document.createElement('button'); b.id='utilityRouteClearBtn'; b.type='button'; b.className='utility-route-clear';
+      b.onclick=(ev)=>{try{ev.preventDefault();ev.stopPropagation();ev.stopImmediatePropagation?.(); if(window.L?.DomEvent)L.DomEvent.stop(ev);}catch(_){ } this.clearAssetUtilityContext?.(ev); return false;};
+      mapEl.appendChild(b);
+    }
+    b.classList.add('right-rail-clear');
+    b.innerHTML='Clear<br>lines';
+    b.title='Clear utility lines';
+    b.setAttribute('aria-label','Clear utility lines');
+    this.updateUtilityRouteClearPosition?.();
+    return b;
+  };
+
+  const oldClear=ME.clearAssetUtilityContext;
+  ME.clearAssetUtilityContext=function(ev=null){
+    const out=oldClear?oldClear.call(this,ev):undefined;
+    try{this.updateUtilityRouteClearPosition?.();}catch(_){ }
+    return out;
+  };
+
+  const oldUpdateEsa=ME.updateEsaOverlayToggle;
+  ME.updateEsaOverlayToggle=function(){
+    const out=oldUpdateEsa?oldUpdateEsa.call(this):undefined;
+    try{
+      const on=!!this.esaOverlayEnabled?.();
+      const oldMap=document.getElementById('esaMapToggle'); if(oldMap)oldMap.style.display='none';
+      const base=document.getElementById('esaLayerToggleMenuBtn'); if(base)base.style.display='none';
+      const quick=document.getElementById('toggleEnableEsaBtn');
+      if(quick){
+        quick.classList.toggle('on',on);
+        quick.setAttribute('aria-pressed',on?'true':'false');
+        quick.innerHTML=`Environment<small>ESA ${on?'ON':'OFF'}</small>`;
+      }
+      const tree=this.ensureEsaTreeButton?.();
+      if(tree){
+        const alert=document.getElementById('hvTxAlertBtn');
+        const alertOn=visible(alert);
+        tree.classList.toggle('below-alert',alertOn);
+        tree.classList.toggle('hidden',!on);
+      }
+      this.updateUtilityRouteClearPosition?.();
+    }catch(_){ }
+    return out;
+  };
+
+  const oldSetEsa=ME.setEsaOverlayEnabled;
+  ME.setEsaOverlayEnabled=function(on){
+    const out=oldSetEsa?oldSetEsa.call(this,on):undefined;
+    try{this.updateEsaOverlayToggle?.();this.updateUtilityRouteClearPosition?.();}catch(_){ }
+    return out;
+  };
+
+  const oldShowUtility=ME.showAssetUtilityContext;
+  ME.showAssetUtilityContext=function(a,opts={}){
+    const out=oldShowUtility?oldShowUtility.call(this,a,opts):false;
+    try{const b=document.getElementById('utilityRouteClearBtn'); if(b&&b.style.display!=='none'){b.classList.add('on','right-rail-clear');b.innerHTML='Clear<br>lines';} this.updateUtilityRouteClearPosition?.();}catch(_){ }
+    return out;
+  };
+
+  const oldInit=ME.init;
+  ME.init=function(){
+    const out=oldInit?oldInit.apply(this,arguments):undefined;
+    try{
+      this.updateEsaOverlayToggle?.();
+      this.updateUtilityRouteClearPosition?.();
+      if(!this.__v193RightRailWatch){
+        this.__v193RightRailWatch=true;
+        const alert=document.getElementById('hvTxAlertBtn');
+        if(alert&&window.MutationObserver){new MutationObserver(()=>{try{this.updateEsaOverlayToggle?.();this.updateUtilityRouteClearPosition?.();}catch(_){ }}).observe(alert,{attributes:true,attributeFilter:['class','style']});}
+      }
+    }catch(_){ }
+    return out;
+  };
+
+  setTimeout(()=>{try{ME.updateEsaOverlayToggle?.();ME.updateUtilityRouteClearPosition?.();}catch(_){ }},600);
+})();
+
+
+/* myMap v3.1.194: ESA overlay persists while zooming in.
+   Previous ESA drawing filtered polygons by the record anchor/centroid only. At high zoom,
+   a large ESA polygon could still cover the screen while its anchor sat outside the map
+   bounds, so it disappeared. This uses polygon bounds intersection instead, with cached
+   bounds for speed on mobile. */
+(function(){
+  const ME=window.MapEngine;
+  if(!ME||ME.__v194EsaZoomPersist)return; ME.__v194EsaZoomPersist=true;
+  const ESA_COLOR='#b018b8';
+  const ESA_FILL='#d332c9';
+  const clean=(v)=>String(v??'').trim();
+  function boundsFromGeomText(txt){
+    txt=clean(txt); if(!txt)return null;
+    let s=Infinity,w=Infinity,n=-Infinity,e=-Infinity,ok=0;
+    const pts=txt.split(/[;|]/);
+    for(const part of pts){
+      const xy=String(part||'').split(',');
+      if(xy.length<2)continue;
+      const lon=Number(xy[0]), lat=Number(xy[1]);
+      if(!Number.isFinite(lat)||!Number.isFinite(lon))continue;
+      if(lat<s)s=lat; if(lat>n)n=lat; if(lon<w)w=lon; if(lon>e)e=lon; ok++;
+    }
+    return ok>=3?[s,w,n,e]:null;
+  }
+  function intersectsArrayBounds(arr,leafletBounds){
+    if(!arr||!leafletBounds)return false;
+    const sw=leafletBounds.getSouthWest(), ne=leafletBounds.getNorthEast();
+    const s=arr[0],w=arr[1],n=arr[2],e=arr[3];
+    return !(n < sw.lat || s > ne.lat || e < sw.lng || w > ne.lng);
+  }
+  function getEsaBounds(asset){
+    if(!asset)return null;
+    if(asset.__mymapEsaB)return asset.__mymapEsaB;
+    const raw=asset.raw||{};
+    const b=boundsFromGeomText(raw.ESA_GEOM_POLY||raw.ESA_GEOM||'');
+    try{Object.defineProperty(asset,'__mymapEsaB',{value:b,configurable:true,writable:true,enumerable:false});}catch(_){asset.__mymapEsaB=b;}
+    return b;
+  }
+  ME.refreshEsaOverlay=function(){
+    if(!this.map||!window.L)return 0;
+    try{this.ensureEsaToggle?.();}catch(_){ }
+    if(!this.esaOverlayLayer)this.esaOverlayLayer=L.layerGroup().addTo(this.map);
+    try{this.esaOverlayLayer.clearLayers();}catch(_){ }
+    if(!this.esaOverlayEnabled?.())return 0;
+    const z=this.map.getZoom?.()||0;
+    if(z<11){try{UI?.toast?.('Zoom in closer to show ESA overlay.');}catch(_){ } return 0;}
+    const recs=this.esaOverlayRecords?.()||[];
+    if(!recs.length){try{UI?.toast?.('ESA overlay file not active. Reimport the ESA overlay ZIP if needed.');}catch(_){ } return 0;}
+    const view=this.map.getBounds?.()?.pad?.(0.18); if(!view)return 0;
+    let drawn=0, considered=0;
+    for(const a of recs){
+      if(drawn>=1200)break;
+      const b=getEsaBounds(a);
+      if(!intersectsArrayBounds(b,view))continue;
+      considered++;
+      const raw=a.raw||{};
+      const rings=(this.parseEsaPoly?this.parseEsaPoly(raw.ESA_GEOM_POLY||raw.ESA_GEOM||''):[]);
+      if(!rings.length)continue;
+      try{
+        L.polygon(rings,{color:ESA_COLOR,weight:1.35,opacity:.72,fillColor:ESA_FILL,fillOpacity:.18,interactive:false}).addTo(this.esaOverlayLayer);
+        drawn++;
+      }catch(_){ }
+    }
+    if(considered>drawn&&drawn>=1200){try{UI?.toast?.('Showing nearest ESA areas only. Zoom in for more detail.');}catch(_){ }}
+    try{this.updateEsaOverlayToggle?.();}catch(_){ }
+    return drawn;
+  };
+  const oldInit=ME.init;
+  ME.init=function(){
+    const out=oldInit?oldInit.apply(this,arguments):undefined;
+    try{
+      if(!this.__v194EsaMoveRefresh){
+        this.__v194EsaMoveRefresh=true;
+        this.map?.on?.('moveend zoomend',()=>{try{if(this.esaOverlayEnabled?.())this.refreshEsaOverlay?.();}catch(_){ }});
+      }
+    }catch(_){ }
+    return out;
+  };
+})();
+
+/* myMap v3.1.196: ESA overlay button icon + menu label cleanup */
+(function(){
+  const ME=window.MapEngine;
+  if(!ME||ME.__v196EsaIconClean)return; ME.__v196EsaIconClean=true;
+  function leafIcon(){
+    return '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" d="M19.5 4.5C12 4.8 6.6 8.4 5.4 14.1c-.5 2.6.8 4.8 3.2 5.4 6.1 1.4 10.4-5.3 10.9-15z"/><path fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" d="M6.8 17.6c2.6-3.7 5.7-6 9.3-7.4"/><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" d="M4.4 20.4h8.2"/></svg>';
+  }
+  const oldEnsure=ME.ensureEsaTreeButton;
+  ME.ensureEsaTreeButton=function(){
+    const b=oldEnsure?oldEnsure.call(this):document.getElementById('esaTreeBtn');
+    if(b){b.innerHTML=leafIcon(); b.title='ESA Overlay on — tap to turn off'; b.setAttribute('aria-label','ESA Overlay on — tap to turn off');}
+    return b;
+  };
+  const oldUpdate=ME.updateEsaOverlayToggle;
+  ME.updateEsaOverlayToggle=function(){
+    const out=oldUpdate?oldUpdate.call(this):undefined;
+    try{
+      const on=!!this.esaOverlayEnabled?.();
+      const q=document.getElementById('toggleEnableEsaBtn');
+      if(q){q.classList.toggle('on',on);q.setAttribute('aria-pressed',on?'true':'false');q.textContent='ESA Overlay';q.title=on?'Turn ESA overlay off':'Turn ESA overlay on';}
+      const tree=this.ensureEsaTreeButton?.();
+      if(tree){tree.classList.toggle('hidden',!on);}
+    }catch(_){ }
+    return out;
+  };
+  const oldSet=ME.setEsaOverlayEnabled;
+  ME.setEsaOverlayEnabled=function(on){const out=oldSet?oldSet.call(this,on):undefined; try{this.updateEsaOverlayToggle?.();}catch(_){ } return out;};
+  setTimeout(()=>{try{ME.updateEsaOverlayToggle?.();}catch(_){ }},500);
+})();
+
+
+/* myMap v3.1.197: clearer ESA status icon + Patrol nearest circuit any distance */
+(function(){
+  const ME=window.MapEngine;
+  if(!ME||ME.__v197PatrolEsa)return; ME.__v197PatrolEsa=true;
+  function envIcon(){
+    return '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" d="M12 21c4.4-3.2 7-6.6 7-10.2C19 6.5 15.9 3 12 3s-7 3.5-7 7.8C5 14.4 7.6 17.8 12 21z"/><path fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" d="M8.2 13.9c3.8.5 6.3-1.7 7.6-6.4-4.6.1-7.2 2.1-7.6 6.4z"/><path fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" d="M8.6 14.2c1.8-1.7 3.6-2.8 5.6-3.4"/><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" d="M8.2 17.5h7.6"/></svg>';
+  }
+  const oldEnsureEsaTree=ME.ensureEsaTreeButton;
+  ME.ensureEsaTreeButton=function(){
+    const b=oldEnsureEsaTree?oldEnsureEsaTree.call(this):document.getElementById('esaTreeBtn');
+    if(b){b.innerHTML=envIcon();b.title='ESA Overlay on — tap to turn off';b.setAttribute('aria-label','ESA Overlay on — tap to turn off');}
+    return b;
+  };
+  const oldUpdateEsa=ME.updateEsaOverlayToggle;
+  ME.updateEsaOverlayToggle=function(){
+    const out=oldUpdateEsa?oldUpdateEsa.call(this):undefined;
+    try{
+      const on=!!this.esaOverlayEnabled?.();
+      const q=document.getElementById('toggleEnableEsaBtn');
+      if(q){q.classList.toggle('on',on);q.setAttribute('aria-pressed',on?'true':'false');q.textContent='ESA Overlay';q.title=on?'Turn ESA overlay off':'Turn ESA overlay on';}
+      const t=this.ensureEsaTreeButton?.(); if(t)t.classList.toggle('hidden',!on);
+    }catch(_){ }
+    return out;
+  };
+
+  const norm=(v)=>String(v??'').trim();
+  const compact=(v)=>{try{return window.SearchEngine?.compact?SearchEngine.compact(v):String(v||'').toUpperCase().replace(/[^A-Z0-9]+/g,'');}catch(_){return String(v||'').toUpperCase().replace(/[^A-Z0-9]+/g,'');}};
+  function displayLine(line){try{return window.SearchEngine?.formatCircuitName?.(line)||line||'';}catch(_){return line||'';}}
+  function isDisplayLine(line){try{return !!window.SearchEngine?.isDisplayableTransmissionCircuitLine?.(line);}catch(_){return /[-/]/.test(String(line||''));}}
+  function assetKey(a,i,line){return [line||'',a?.id||a?.assetId||a?.globalId||'',a?.sourceFile||'',a?.structure||a?.poleNumber||'',a?.lat||'',a?.lon||'',i].join('|');}
+  ME.buildPatrolCircuitCandidates=function(){
+    const assets=Array.isArray(window.App?.assets)?App.assets:[];
+    const stamp=[assets.length,window.SearchEngine?.lineMap?.size||0,window.SearchEngine?.indexedAssetIds?.size||0].join('|');
+    if(this._patrolCircuitCandidateStamp===stamp&&Array.isArray(this._patrolCircuitCandidates))return this._patrolCircuitCandidates;
+    const out=[]; const seen=new Set();
+    for(let i=0;i<assets.length;i++){
+      const a=assets[i];
+      if(!a||typeof a!=='object')continue;
+      try{
+        if(a.kind==='circuit'||window.UtilitiesEngine?.isUtility?.(a)||window.SearchEngine?.isUtilityAsset?.(a))continue;
+        const lat=Number(a.lat), lon=Number(a.lon);
+        if(!Number.isFinite(lat)||!Number.isFinite(lon))continue;
+        let refs=[];
+        try{refs=window.SearchEngine?.lineRefsForAsset?.(a,true)||[];}catch(_){refs=[];}
+        if(!refs.length&&a.line)refs=[{line:a.line}];
+        for(const r of refs){
+          const line=displayLine(r?.line||'');
+          if(!line||!isDisplayLine(line))continue;
+          const k=assetKey(a,i,compact(line)); if(seen.has(k))continue; seen.add(k);
+          out.push({lat,lon,line,asset:a});
+        }
+      }catch(_){ }
+    }
+    this._patrolCircuitCandidates=out;
+    this._patrolCircuitCandidateStamp=stamp;
+    return out;
+  };
+  ME.nearestCircuitAnyDistance=function(){
+    const g=this.gpsLast; if(!g)return null;
+    const now=Date.now();
+    const q=[Math.round(Number(g.lat)*10000),Math.round(Number(g.lon)*10000),this._patrolCircuitCandidateStamp||''].join('|');
+    if(this._patrolNearestCircuitCache&&this._patrolNearestCircuitCache.q===q&&now-(this._patrolNearestCircuitCache.ts||0)<3500)return this._patrolNearestCircuitCache.hit;
+    const origin={lat:Number(g.lat),lon:Number(g.lon)};
+    const list=this.buildPatrolCircuitCandidates?.()||[];
+    let best=null,bestM=Infinity;
+    for(const c of list){
+      const m=this.distanceM(origin,c);
+      if(Number.isFinite(m)&&m<bestM){best=c;bestM=m;}
+    }
+    const hit=best?{line:best.line,distanceM:bestM,asset:best.asset}:null;
+    this._patrolNearestCircuitCache={q,ts:now,hit};
+    return hit;
+  };
+  const oldNearestSummary=ME.gpsNearestSummary;
+  ME.gpsNearestSummary=function(){
+    const sum=oldNearestSummary?oldNearestSummary.call(this):null;
+    try{
+      const nc=this.nearestCircuitAnyDistance?.();
+      if(nc){
+        const out=sum||{ts:Date.now()};
+        out.nearestCircuit=nc.line; out.nearestCircuitM=nc.distanceM;
+        if(!out.circuit)out.circuit=nc.line;
+        return out;
+      }
+    }catch(_){ }
+    return sum;
+  };
+  function circuitTextForPatrol(ctx,sum){
+    const line=sum?.nearestCircuit||sum?.circuit||ctx.currentCircuit||'';
+    const d=Number(sum?.nearestCircuitM);
+    return line?(Number.isFinite(d)?`${line} · ${ctx.fmtGpsDistance(d)}`:line):'—';
+  }
+  const oldUpdateGps=ME.updateGpsPanel;
+  ME.updateGpsPanel=function(pos){
+    const out=oldUpdateGps?oldUpdateGps.call(this,pos):undefined;
+    try{
+      const apply=()=>{
+        try{
+          const sum=this.gpsNearestSummary?.();
+          const txt=circuitTextForPatrol(this,sum);
+          if(this._fastSetText)this._fastSetText('gpsCircuitValue',txt);
+          else {const el=document.getElementById('gpsCircuitValue'); if(el)el.textContent=txt;}
+        }catch(_){ }
+      };
+      setTimeout(apply,80);
+    }catch(_){ }
+    return out;
+  };
+})();
+
+
+/* myMap v3.1.198: final right-rail placement and ESA big leaf button */
+(function(){
+  const ME=window.MapEngine;
+  if(!ME||ME.__v198EsaClearRailFix)return; ME.__v198EsaClearRailFix=true;
+  const visible=(el)=>!!(el&&!(el.classList&&el.classList.contains('hidden'))&&getComputedStyle(el).display!=='none'&&getComputedStyle(el).visibility!=='hidden');
+  const setTop=(el,px)=>{try{el.style.setProperty('top',`calc(${px}px + var(--safe-top))`,'important');}catch(_){ }};
+  function bigLeafIcon(){
+    return '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M20.6 3.4C13.2 3.9 7.1 7.1 5.2 12.3c-1.1 3 .1 5.9 2.8 7 6.7 2.7 11.9-5.1 12.6-15.9z"/><path d="M5.8 18.5c3.8-5.1 7.3-8.3 12-10.7"/><path d="M8.2 15.2c1.8.2 3.5.1 5-.5"/><path d="M9.9 12.5c1.7.1 3.2-.1 4.6-.8"/><path d="M4.2 20.8h9.6"/></svg>';
+  }
+  function alertOn(){return visible(document.getElementById('hvTxAlertBtn'));}
+  function esaOn(){return visible(document.getElementById('esaTreeBtn'));}
+  function clearY(){const a=alertOn(), e=esaOn(); if(a&&e)return 348; if(a||e)return 292; return 236;}
+  function esaY(){return alertOn()?292:236;}
+  const oldEnsureEsa=ME.ensureEsaTreeButton;
+  ME.ensureEsaTreeButton=function(){
+    const b=oldEnsureEsa?oldEnsureEsa.call(this):document.getElementById('esaTreeBtn');
+    if(b){
+      b.innerHTML=bigLeafIcon();
+      b.title='ESA Overlay on — tap to turn off';
+      b.setAttribute('aria-label','ESA Overlay on — tap to turn off');
+      setTop(b,esaY());
+    }
+    return b;
+  };
+  const oldUpdateEsa=ME.updateEsaOverlayToggle;
+  ME.updateEsaOverlayToggle=function(){
+    const out=oldUpdateEsa?oldUpdateEsa.call(this):undefined;
+    try{
+      const on=!!this.esaOverlayEnabled?.();
+      const q=document.getElementById('toggleEnableEsaBtn');
+      if(q){
+        q.classList.toggle('on',on);
+        q.setAttribute('aria-pressed',on?'true':'false');
+        q.textContent='ESA Overlay';
+        q.title=on?'Turn ESA overlay off':'Turn ESA overlay on';
+      }
+      const t=this.ensureEsaTreeButton?.();
+      if(t){t.classList.toggle('hidden',!on); setTop(t,esaY());}
+      this.updateUtilityRouteClearPosition?.();
+    }catch(_){ }
+    return out;
+  };
+  const oldEnsureClear=ME.ensureUtilityRouteClear;
+  ME.ensureUtilityRouteClear=function(){
+    let b=oldEnsureClear?oldEnsureClear.call(this):document.getElementById('utilityRouteClearBtn');
+    if(!b){
+      const mapEl=this.map?.getContainer?.()||document.getElementById('map')||document.body;
+      b=document.createElement('button'); b.id='utilityRouteClearBtn'; b.type='button'; b.className='utility-route-clear right-rail-clear';
+      b.onclick=(ev)=>{try{ev.preventDefault();ev.stopPropagation();ev.stopImmediatePropagation?.(); if(window.L?.DomEvent)L.DomEvent.stop(ev);}catch(_){ } this.clearAssetUtilityContext?.(ev); return false;};
+      mapEl.appendChild(b);
+    }
+    b.classList.add('right-rail-clear');
+    b.textContent='Clear';
+    b.title='Clear utility lines';
+    b.setAttribute('aria-label','Clear utility lines');
+    setTop(b,clearY());
+    return b;
+  };
+  ME.updateUtilityRouteClearPosition=function(){
+    const b=document.getElementById('utilityRouteClearBtn');
+    if(!b)return;
+    b.classList.add('right-rail-clear');
+    b.textContent='Clear';
+    b.title='Clear utility lines';
+    setTop(b,clearY());
+  };
+  const oldShow=ME.showAssetUtilityContext;
+  ME.showAssetUtilityContext=function(a,opts={}){
+    const out=oldShow?oldShow.call(this,a,opts):false;
+    try{const b=document.getElementById('utilityRouteClearBtn'); if(b&&b.style.display!=='none'){b.classList.add('on','right-rail-clear');b.textContent='Clear';} this.updateEsaOverlayToggle?.(); this.updateUtilityRouteClearPosition?.();}catch(_){ }
+    return out;
+  };
+  const oldClear=ME.clearAssetUtilityContext;
+  ME.clearAssetUtilityContext=function(ev=null){
+    const out=oldClear?oldClear.call(this,ev):undefined;
+    try{const b=document.getElementById('utilityRouteClearBtn'); if(b)b.textContent='Clear'; this.updateUtilityRouteClearPosition?.();}catch(_){ }
+    return out;
+  };
+  const oldInit=ME.init;
+  ME.init=function(){
+    const out=oldInit?oldInit.apply(this,arguments):undefined;
+    try{
+      this.updateEsaOverlayToggle?.(); this.updateUtilityRouteClearPosition?.();
+      if(!this.__v198RailWatch){
+        this.__v198RailWatch=true;
+        const alert=document.getElementById('hvTxAlertBtn');
+        if(alert&&window.MutationObserver){new MutationObserver(()=>{try{this.updateEsaOverlayToggle?.();this.updateUtilityRouteClearPosition?.();}catch(_){ }}).observe(alert,{attributes:true,attributeFilter:['class','style']});}
+      }
+    }catch(_){ }
+    return out;
+  };
+  setTimeout(()=>{try{ME.updateEsaOverlayToggle?.();ME.updateUtilityRouteClearPosition?.();}catch(_){ }},700);
+})();
+
+/* myMap v3.1.199: safe speed pass - cache utility lookups and pre-prime hidden sidecar index. */
+(function(){
+  const ME=window.MapEngine;
+  if(!ME||ME.__v199SafeSpeedPass)return; ME.__v199SafeSpeedPass=true;
+  const cache=new WeakMap();
+  function stamp(){
+    try{return [window.App?.assets?.length||0,window.App?.files?.length||0,ME.utilityContextIndexSize||0,ME.utilityContextIndex?.size||0].join('|');}
+    catch(_){return '0';}
+  }
+  const oldInvalidate=ME.invalidateUtilityContextIndex;
+  ME.invalidateUtilityContextIndex=function(){
+    try{cache.clear?.();}catch(_){ }
+    const out=oldInvalidate?oldInvalidate.apply(this,arguments):undefined;
+    try{this._v199IndexPrimedStamp='';}catch(_){ }
+    return out;
+  };
+  const oldTypes=ME.utilityContextTypesForAsset;
+  ME.utilityContextTypesForAsset=function(a){
+    if(!a||typeof a!=='object')return oldTypes?oldTypes.call(this,a):[];
+    const s=stamp();
+    try{
+      const hit=cache.get(a);
+      if(hit&&hit.s===s&&Array.isArray(hit.v))return hit.v;
+    }catch(_){ }
+    const out=oldTypes?oldTypes.call(this,a):[];
+    try{cache.set(a,{s,v:Array.isArray(out)?out:[]});}catch(_){ }
+    return Array.isArray(out)?out:[];
+  };
+  ME.clearV199UtilityCache=function(){try{cache.clear?.();}catch(_){ }};
+  ME.primeSpeedIndexes=function(reason=''){
+    try{
+      const assets=Array.isArray(window.App?.assets)?App.assets:[];
+      const s=[assets.length,window.App?.files?.length||0].join('|');
+      if(!assets.length||this._v199IndexPrimedStamp===s)return;
+      this._v199IndexPrimedStamp=s;
+      const run=()=>{try{this.buildUtilityContextIndex?.();}catch(e){try{Diagnostics?.log?.('Speed index prime skipped',String(e?.message||e));}catch(_){ }} };
+      if(window.requestIdleCallback)requestIdleCallback(run,{timeout:2500});
+      else setTimeout(run,850);
+    }catch(_){ }
+  };
+  const oldInit=ME.init;
+  ME.init=function(){
+    const out=oldInit?oldInit.apply(this,arguments):undefined;
+    try{this.primeSpeedIndexes?.('init');}catch(_){ }
+    return out;
+  };
+  setTimeout(()=>{try{ME.primeSpeedIndexes?.('startup');}catch(_){ }},1200);
+})();
+
+
+/* myMap v3.1.201: allow calculator overlays as safe popup/click targets and refresh ESA label. */
+(function(){
+  const ME=window.MapEngine;
+  if(!ME||ME.__v201PopupSafeTargets)return; ME.__v201PopupSafeTargets=true;
+  const oldInit=ME.init;
+  ME.init=function(){
+    const out=oldInit?oldInit.apply(this,arguments):undefined;
+    try{
+      if(this.map&&!this.__v201CalcTargetGuard){
+        this.__v201CalcTargetGuard=true;
+        this.map.on('click',ev=>{
+          try{
+            const t=ev?.originalEvent?.target;
+            if(t?.closest?.('.fmSWOverlay,#fieldMapSpanWeightOverlay,#fieldMapPullLoadOverlay,#fieldMapAnglePullOverlay,.fmCalcMenu,.fmCalcBtn')){
+              ev?.originalEvent?.stopPropagation?.();
+              if(window.L?.DomEvent)L.DomEvent.stop(ev.originalEvent);
+            }
+          }catch(_){ }
+        });
+      }
+      window.myMapFixEsaOverlayMenuV201?.();
+    }catch(_){ }
+    return out;
+  };
+  const oldUpdate=ME.updateEsaOverlayToggle;
+  ME.updateEsaOverlayToggle=function(){
+    const out=oldUpdate?oldUpdate.call(this):undefined;
+    try{window.myMapFixEsaOverlayMenuV201?.();}catch(_){ }
+    return out;
+  };
+})();
+
+/* myMap v3.1.204: clean HVUG utility detail wording in asset popup utility cards. */
+(function(){
+  const ME=window.MapEngine;
+  if(!ME||ME.__v203HvUtilityLabels)return; ME.__v203HvUtilityLabels=true;
+  const old=ME.utilityContextTypesForAsset?.bind(ME);
+  const clean=v=>String(v??'').trim();
+  ME.utilityContextTypesForAsset=function(a){
+    const list=old?old(a):[];
+    try{
+      for(const c of list||[]){
+        if(!c)continue;
+        if(String(c.type||'').toLowerCase()==='hvcable'||String(c.short||'').toUpperCase()==='HVUG'){
+          const d=window.myMapHvDisplay?.parse?.({kv:c.detail,type:c.detail,phases:c.detail,network:''});
+          if(d){
+            const parts=[d.displayKv||d.networkKv,d.phases,d.hvType].filter(Boolean);
+            if(parts.length)c.detail=parts.join(' · ');
+            c.label='HV underground cable'; c.short='HVUG';
+          }
+        }
+      }
+    }catch(_){ }
+    return list;
+  };
+})();
+
+/* myMap v3.1.212: do not let the map outside-click handler close newly opened calculator overlays. */
+(function(){
+  const ME=window.MapEngine;
+  if(!ME||ME.__v212CalcPopupGuard)return; ME.__v212CalcPopupGuard=true;
+  const oldPopupOptions=ME.popupOptions;
+  ME.popupOptions=function(){
+    const o=oldPopupOptions?oldPopupOptions.apply(this,arguments):{};
+    return Object.assign({},o,{autoClose:true,closeOnClick:false});
+  };
+  const oldInit=ME.init;
+  ME.init=function(){
+    const out=oldInit?oldInit.apply(this,arguments):undefined;
+    try{
+      if(this.map&&!this.__v212CalcMapClickGuard){
+        this.__v212CalcMapClickGuard=true;
+        this.map.on('click',ev=>{
+          try{
+            const t=ev?.originalEvent?.target;
+            if(Date.now()<(window.__myMapCalcOpeningUntil||0)||t?.closest?.('.fmCalcMenuFlat,.fmCalcBtn,.fmSWOverlay,#fieldMapSpanWeightOverlay,#fieldMapPullLoadOverlay,#fieldMapAnglePullOverlay')){
+              ev?.originalEvent?.stopPropagation?.();
+              if(window.L?.DomEvent&&ev?.originalEvent)L.DomEvent.stop(ev.originalEvent);
+              return false;
+            }
+          }catch(_){ }
+        });
+      }
+    }catch(_){ }
+    return out;
+  };
+})();
+
+
+/* myMap v3.1.213: keep full HVUG feeder/network detail in utility popup rows.
+   Older HV display cleanup stripped the route/network text, leaving only 22 kV / phase / type. */
+(function(){
+  const ME=window.MapEngine;
+  if(!ME||ME.__v213HvugFeederDetail)return; ME.__v213HvugFeederDetail=true;
+  const old=ME.utilityContextTypesForAsset?.bind(ME);
+  const clean=v=>String(v??'').trim();
+  const rawVal=(raw,key)=>{try{for(const [k,v] of Object.entries(raw||{})){if(String(k).toUpperCase()===String(key).toUpperCase()&&clean(v))return clean(v);}}catch(_){ } return '';};
+  const isNo=v=>/^\s*no\s+/i.test(clean(v));
+  const contextRe=/^(NEARBY_(?:HV(?:_CABLE)?|WATER|SEWER|RAIL|ESA|PETROLEUM|GAS)_|UTILITY_(?:DETAIL|RADIUS|MARKUP|DRAWABLE|GEOM|POINT)_)/i;
+  function mergedRaw(me,a){
+    const out={...(a?.raw||{})};
+    try{
+      const matches=me.lookupUtilityContextAssets?.(a)||[];
+      for(const b of matches.reverse()){
+        const r=b?.raw||{};
+        for(const [k,v] of Object.entries(r)){
+          if(!contextRe.test(k)||!clean(v)||isNo(v))continue;
+          if(!clean(out[k])||isNo(out[k])||/^UTILITY_(?:GEOM|POINT)_/i.test(k))out[k]=v;
+        }
+      }
+      for(const [k,v] of Object.entries(a?.raw||{})){ if(clean(v))out[k]=v; }
+    }catch(_){ }
+    return out;
+  }
+  function hvugDetail(raw,existing=''){
+    const kv=rawVal(raw,'NEARBY_HV_CABLE_KV');
+    const phases=rawVal(raw,'NEARBY_HV_CABLE_PHASES');
+    const type=rawVal(raw,'NEARBY_HV_CABLE_TYPE')||'HVUG';
+    const network=rawVal(raw,'NEARBY_HV_CABLE_NETWORK')||rawVal(raw,'NETWK_NAME')||rawVal(raw,'NETWORK')||rawVal(raw,'FEEDER')||rawVal(raw,'FEEDER_NAME');
+    const source=rawVal(raw,'NEARBY_HV_CABLE_SOURCE');
+    const parsed=window.myMapHvDisplay?.parse?.({kv:[kv,existing].join(' '),phases:[phases,existing].join(' '),type:[type,existing].join(' '),network});
+    const parts=[];
+    const add=v=>{v=clean(v); if(v&&!parts.some(x=>x.toLowerCase()===v.toLowerCase()))parts.push(v);};
+    add(parsed?.displayKv||kv);
+    add(parsed?.phases||phases);
+    add(parsed?.hvType||type);
+    if(network)add('Feeder/network: '+network);
+    if(source)add('Source: '+source.replace(/\s*\+\s*/g,' + '));
+    return parts.join(' · ') || existing;
+  }
+  ME.utilityContextTypesForAsset=function(a){
+    const list=old?old(a):[];
+    try{
+      const raw=mergedRaw(this,a);
+      for(const c of list||[]){
+        if(!c)continue;
+        if(String(c.type||'').toLowerCase()==='hvcable'||String(c.short||'').toUpperCase()==='HVUG'){
+          c.label='HV underground cable'; c.short='HVUG'; c.detail=hvugDetail(raw,c.detail||'');
+        }
+      }
+    }catch(_){ }
+    return list;
+  };
+})();
+
+
+/* myMap v3.1.214: remove source/source-file text from HVUG utility rows, keep feeder/network detail. */
+(function(){
+  const ME=window.MapEngine;
+  if(!ME||ME.__v214HvugNoSource)return; ME.__v214HvugNoSource=true;
+  const old=ME.utilityContextTypesForAsset?.bind(ME);
+  function stripSource(detail){
+    let d=String(detail||'').trim();
+    if(!d)return d;
+    d=d.split(/\s*·\s*/).filter(part=>!/^\s*(source|source file|file|import file)\s*:/i.test(part)).join(' · ');
+    d=d.replace(/\s*\bSource\s*:\s*[^·\n]+/ig,'').replace(/\s*\bSource file\s*:\s*[^·\n]+/ig,'');
+    return d.replace(/\s*·\s*·\s*/g,' · ').replace(/^\s*·\s*|\s*·\s*$/g,'').trim();
+  }
+  ME.utilityContextTypesForAsset=function(a){
+    const list=old?old(a):[];
+    try{
+      for(const c of list||[]){
+        if(!c)continue;
+        if(String(c.type||'').toLowerCase()==='hvcable'||String(c.short||'').toUpperCase()==='HVUG'){
+          c.detail=stripSource(c.detail||'');
+          c.source=''; c.sourceFile=''; c.sourceLabel='';
+        }
+      }
+    }catch(_){ }
+    return list;
+  };
+})();
+
+
+/* myMap v3.1.230: ESA screen-priority overlay fix.
+   Draw ESA polygons that actually intersect the current screen first. This avoids missing-looking
+   ESA areas around places like Collie caused by import order / draw caps. Minimum zoom lowered to 10. */
+(function(){
+  const ME=window.MapEngine;
+  if(!ME||ME.__v230EsaScreenPriority)return; ME.__v230EsaScreenPriority=true;
+  const ESA_COLOR='#9a1bb0';
+  const ESA_FILL='#d332c9';
+  const MAX_BY_ZOOM=(z)=> z>=14?12000 : z>=13?9000 : z>=12?6500 : z>=11?4200 : 2600;
+  const clean=(v)=>String(v??'').trim();
+  function parseRings(txt){
+    txt=clean(txt); if(!txt)return [];
+    return txt.split('|').map(ring=>ring.split(';').map(p=>{
+      const m=String(p||'').split(',').map(Number);
+      return (m.length>=2&&Number.isFinite(m[0])&&Number.isFinite(m[1]))?[m[1],m[0]]:null;
+    }).filter(Boolean)).filter(r=>r.length>=3);
+  }
+  function ringBounds(rings){
+    let s=Infinity,w=Infinity,n=-Infinity,e=-Infinity,ok=0;
+    for(const ring of rings||[]){
+      for(const p of ring||[]){
+        const lat=Number(p?.[0]), lon=Number(p?.[1]);
+        if(!Number.isFinite(lat)||!Number.isFinite(lon))continue;
+        if(lat<s)s=lat; if(lat>n)n=lat; if(lon<w)w=lon; if(lon>e)e=lon; ok++;
+      }
+    }
+    return ok>=3?{s,w,n,e,cLat:(s+n)/2,cLon:(w+e)/2,area:Math.max(0,n-s)*Math.max(0,e-w)}:null;
+  }
+  function cachedGeom(a){
+    if(!a)return null;
+    if(a.__mymapV230EsaGeom)return a.__mymapV230EsaGeom;
+    const raw=a.raw||{};
+    const rings=parseRings(raw.ESA_GEOM_POLY||raw.ESA_GEOM||'');
+    const b=ringBounds(rings);
+    const g={rings,b};
+    try{Object.defineProperty(a,'__mymapV230EsaGeom',{value:g,configurable:true,writable:true,enumerable:false});}catch(_){a.__mymapV230EsaGeom=g;}
+    return g;
+  }
+  function boundsIntersects(b,lb){
+    if(!b||!lb)return false;
+    const sw=lb.getSouthWest(), ne=lb.getNorthEast();
+    return !(b.n < sw.lat || b.s > ne.lat || b.e < sw.lng || b.w > ne.lng);
+  }
+  function insideBounds(b,lb){
+    if(!b||!lb)return false;
+    const sw=lb.getSouthWest(), ne=lb.getNorthEast();
+    return b.cLat>=sw.lat&&b.cLat<=ne.lat&&b.cLon>=sw.lng&&b.cLon<=ne.lng;
+  }
+  function dist2ToCenter(b,c){
+    if(!b||!c)return 0;
+    const dx=(b.cLon-c.lng), dy=(b.cLat-c.lat);
+    return dx*dx+dy*dy;
+  }
+  ME.refreshEsaOverlay=function(){
+    if(!this.map||!window.L)return 0;
+    try{this.ensureEsaToggle?.();}catch(_){ }
+    if(!this.esaOverlayLayer)this.esaOverlayLayer=L.layerGroup().addTo(this.map);
+    try{this.esaOverlayLayer.clearLayers();}catch(_){ }
+    if(!this.esaOverlayEnabled?.())return 0;
+    const z=this.map.getZoom?.()||0;
+    if(z<10){try{UI?.toast?.('Zoom in closer to show ESA overlay.');}catch(_){ } return 0;}
+    const recs=this.esaOverlayRecords?.()||[];
+    if(!recs.length){try{UI?.toast?.('ESA overlay file not active. Reimport the current ESA overlay ZIP if needed.');}catch(_){ } return 0;}
+    const bounds=this.map.getBounds?.(); if(!bounds)return 0;
+    const view=bounds.pad?.(z>=12?0.10:0.18)||bounds;
+    const center=this.map.getCenter?.();
+    const cap=MAX_BY_ZOOM(z);
+    const candidates=[];
+    for(const a of recs){
+      const g=cachedGeom(a);
+      if(!g||!g.b||!g.rings?.length)continue;
+      if(!boundsIntersects(g.b,view))continue;
+      candidates.push({a,g,inView:insideBounds(g.b,bounds),d:dist2ToCenter(g.b,center),area:g.b.area||0});
+    }
+    candidates.sort((x,y)=>{
+      if(x.inView!==y.inView)return x.inView?-1:1;
+      if(x.d!==y.d)return x.d-y.d;
+      return x.area-y.area;
+    });
+    let drawn=0;
+    for(const item of candidates){
+      if(drawn>=cap)break;
+      try{L.polygon(item.g.rings,{color:ESA_COLOR,weight:1.35,opacity:.74,fillColor:ESA_FILL,fillOpacity:.20,interactive:false}).addTo(this.esaOverlayLayer); drawn++;}catch(_){ }
+    }
+    this._esaOverlayLastStats={drawn,available:candidates.length,total:recs.length,cap,zoom:z};
+    if(candidates.length>drawn){try{UI?.toast?.(`ESA shown ${drawn}/${candidates.length}. Zoom in for all.`);}catch(_){ }}
+    try{this.updateEsaOverlayToggle?.();}catch(_){ }
+    return drawn;
+  };
+  const oldInit=ME.init;
+  ME.init=function(){
+    const out=oldInit?oldInit.apply(this,arguments):undefined;
+    try{
+      if(!this.__v230EsaRefreshBound){
+        this.__v230EsaRefreshBound=true;
+        this.map?.on?.('moveend zoomend',()=>{try{if(this.esaOverlayEnabled?.())this.refreshEsaOverlay?.();}catch(_){ }});
+      }
+    }catch(_){ }
+    return out;
+  };
+})();
+
+/* myMap v3.1.231: clean ESA status button icon - simple leaf only */
+(function(){
+  const ME=window.MapEngine;
+  if(!ME||ME.__v231CleanEsaLeaf)return; ME.__v231CleanEsaLeaf=true;
+  function leafOnly(){
+    return '<svg viewBox="0 0 48 48" aria-hidden="true" focusable="false"><path d="M39.7 7.7C28.7 8.2 18.8 12 12.9 18.2c-4.8 5.1-5.3 11.8-1.2 16 4.2 4.2 10.9 3.8 16.2-1.1 6.1-5.8 9.9-15.3 11.8-25.4Z"/><path d="M10.2 38.7c7.6-9.9 15.8-17.5 25-23"/></svg>';
+  }
+  const oldEnsure=ME.ensureEsaTreeButton;
+  ME.ensureEsaTreeButton=function(){
+    const b=oldEnsure?oldEnsure.call(this):document.getElementById('esaTreeBtn');
+    if(b){
+      b.innerHTML=leafOnly();
+      b.title='ESA Overlay on — tap to turn off';
+      b.setAttribute('aria-label','ESA Overlay on — tap to turn off');
+    }
+    return b;
+  };
+  const oldUpdate=ME.updateEsaOverlayToggle;
+  ME.updateEsaOverlayToggle=function(){
+    const out=oldUpdate?oldUpdate.call(this):undefined;
+    try{
+      const on=!!this.esaOverlayEnabled?.();
+      const q=document.getElementById('toggleEnableEsaBtn');
+      if(q){q.classList.toggle('on',on);q.setAttribute('aria-pressed',on?'true':'false');q.textContent='ESA Overlay';q.title=on?'Turn ESA overlay off':'Turn ESA overlay on';}
+      const b=this.ensureEsaTreeButton?.(); if(b)b.classList.toggle('hidden',!on);
+    }catch(_){ }
+    return out;
+  };
+  setTimeout(()=>{try{ME.updateEsaOverlayToggle?.();}catch(_){ }},500);
+})();
+
+
+/* myMap v3.1.236: saved pin list rows jump to the saved pin */
+(function(){
+  const ME=window.MapEngine;
+  if(!ME||ME.__v235SavedPinGoto)return; ME.__v235SavedPinGoto=true;
+  ME.goToSavedPinDrop=function(id){
+    try{
+      id=String(id||'');
+      const rec=(this.readSavedPinDrops?.()||[]).find(p=>String(p?.id||'')===id);
+      if(!rec){UI?.toast?.('Saved pin not found.');return false;}
+      const lat=Number(rec?.pin?.lat), lon=Number(rec?.pin?.lon);
+      if(!Number.isFinite(lat)||!Number.isFinite(lon)||!this.map){UI?.toast?.('Saved pin has no GPS.');return false;}
+      this.renderSavedPinDrops?.(true);
+      const zoom=Math.max(Number(this.map.getZoom?.()||0),17);
+      this.map.setView([lat,lon],zoom,{animate:true});
+      setTimeout(()=>{try{const marker=this.findSavedPinMarker?.(id); if(marker){marker.openPopup();this.refitOpenPopup?.();}}catch(_){ }},350);
+      UI?.toast?.('Moved to saved pin.');
+      return true;
+    }catch(e){try{Diagnostics?.capture?.(e);}catch(_){ } UI?.toast?.('Could not open saved pin.'); return false;}
   };
 })();

@@ -7,6 +7,15 @@ const Diagnostics={
   },
   capture(err){
     const msg=err?.stack||String(err);
+    const name=String(err&&err.name||'');
+    if(name==='AbortError'||/^AbortError\b/i.test(msg)||/signal is aborted/i.test(msg)){
+      this.log('Ignored normal browser abort',msg);
+      return;
+    }
+    if((name==='TypeError'||/^TypeError\b/i.test(msg)||/Failed to fetch/i.test(msg)) && (/lookupNearestAddressForPin|pinFetchJsonWithTimeout|lookupOverpassClosestStreetAddress|fetchJsonWithTimeout|nominatim|overpass|photon|bigdatacloud/i.test(msg))){
+      this.log('Ignored nearest-address fetch failure',msg);
+      return;
+    }
     this.errors.push({time:new Date().toISOString(),message:msg});
     if(this.errors.length>80)this.errors.shift();
     console.error(err);

@@ -24,7 +24,7 @@ const ImportEngine={
   },
   largeFileThreshold: 18 * 1024 * 1024,
   lastParseStats:null,
-  parserVersion:'parser41-dx-hv-crossing-sidecar',
+  parserVersion:'parser44-esa-overlay-route-sidecars',
   currentReader:null,
   currentStreamReader:null,
   formatBytes(n){
@@ -209,7 +209,7 @@ const ImportEngine={
         try{crossingStoreResult=await HVCrossingsLayer.storeImported(crossingRecords,file.name,{size:file.size}); crossingImportedTotal+=Number(crossingStoreResult.stored||0);}catch(crossErr){Diagnostics?.capture?.(new Error('HV/TX crossing sidecar import failed: '+(crossErr?.message||crossErr))); crossingRecords=[];}
       }
       let utilityRecords=[];
-      records=allParsedRecords.filter(r=>r&&typeof r==='object'&&!/^utility-/i.test(String(r.kind||''))&&String(r.kind||'').toLowerCase()!=='hv-crossing'&&!HVCrossingsLayer?.isCrossingAsset?.(r)&&!this.isHVCrossingRecord(r.raw||r,file.name));
+      records=allParsedRecords.filter(r=>{if(!r||typeof r!=='object')return false; const raw=r.raw||{}; const k=String(r.kind||raw.KIND||raw.kind||raw.asset_type||'').toLowerCase(); const fileCtx=/POLE[_\s-]*DRAW[_\s-]*CONTEXT|FAST[_\s-]*CONTEXT|UTILITY[_\s-]*ROUTE[_\s-]*SNIPPETS/i.test(String(file.name||'')); const keepContext=k==='utility-draw-context'||k==='utility-context-sidecar'||String(raw.DRAW_CONTEXT_SIDECAR||'')==='1'||Object.keys(raw).some(x=>/^UTILITY_CONTEXT_MODE$/i.test(x))||fileCtx; return (keepContext||!/^utility-/i.test(k))&&k!=='hv-crossing'&&!HVCrossingsLayer?.isCrossingAsset?.(r)&&!this.isHVCrossingRecord(raw||r,file.name);});
       const normalCompactStats=this.compactImportRecords(records,'normal');
       records=normalCompactStats.records;
       const utilityCompactStats={records:[],rawFieldsBefore:0,rawFieldsAfter:0,rawFieldsDropped:0,compacted:0};
@@ -273,7 +273,7 @@ const ImportEngine={
       // Large GeoJSON imports can contain tens of thousands of objects; records.slice() caused
       // a second full copy right at the end of loading, which is where SPCK most often crashed.
       const recordsForIndex=records;
-      App.assets=merged;
+      App.assets=merged; try{window.MapEngine?.invalidateUtilityContextIndex?.();}catch(_e){}
       App.files=[...(App.files||[]),meta[meta.length-1]];
       const fileMeta=meta[meta.length-1];
       if(false&&utilityRecords.length&&StorageEngine?.saveUtilityFileAssets){
@@ -304,6 +304,11 @@ const ImportEngine={
           meta[meta.length-1].indexResult=indexRes;
           this.setIndexHealthFile(file.name,{status:'active',indexFinishedAt:new Date().toISOString(),indexResult:indexRes});
         }catch(indexErr){
+          if(indexErr?.name==='AbortError'){
+            meta[meta.length-1].indexStatus='cancelled';
+            this.setIndexHealthFile(file.name,{status:'cancelled',error:'Cancelled during indexing',indexFinishedAt:new Date().toISOString()});
+            throw indexErr;
+          }
           meta[meta.length-1].indexStatus='failed';
           this.setIndexHealthFile(file.name,{status:'failed',error:String(indexErr.message||indexErr),indexFinishedAt:new Date().toISOString()});
           Diagnostics.capture(new Error(`File-level indexing failed for ${file.name}: ${indexErr.message||indexErr}`));
@@ -315,7 +320,7 @@ const ImportEngine={
       UI.refreshCounts?.();
       await this.idle();
     }
-    App.assets=merged;
+    App.assets=merged; try{window.MapEngine?.invalidateUtilityContextIndex?.();}catch(_e){}
     const conductorSpanCount=(merged||[]).filter(a=>SearchEngine?.isConductorSpanAsset?.(a)).length;
     if(changedCoreFiles&&(deferFileIndex||conductorSpanCount)){
       UI.progress(true,bundleImport?'Final bundle rebuild…':'Linking conductor data…',conductorSpanCount?`${conductorSpanCount.toLocaleString()} conductor span records found · linking to poles/towers by circuit and nameplate range`:'Building one final search index after bundle import',94);
@@ -324,11 +329,11 @@ const ImportEngine={
         else SearchEngine?.rebuild?.();
         for(const m of meta){ if(m&&!m.skippedUnchanged){ m.indexStatus='active'; m.indexResult={bundleRebuild:true}; this.setIndexHealthFile(m.name,{status:'active',indexFinishedAt:new Date().toISOString(),indexResult:{bundleRebuild:true}}); } }
       }
-      catch(linkErr){Diagnostics.capture(new Error('Final conductor/bundle rebuild failed: '+(linkErr.message||linkErr)));}
+      catch(linkErr){if(linkErr?.name==='AbortError')throw linkErr;Diagnostics.capture(new Error('Final conductor/bundle rebuild failed: '+(linkErr.message||linkErr)));}
     }else if(changedCoreFiles&&SearchEngine?.buildCircuitPathIndexAsync){
       UI.progress(true,'Optimising circuit paths…','Building connected-line paths once for changed imports',94);
       try{await SearchEngine.buildCircuitPathIndexAsync(merged,'Circuit path optimiser');}
-      catch(pathErr){Diagnostics?.log?.('Circuit path optimiser skipped',String(pathErr?.message||pathErr));}
+      catch(pathErr){if(pathErr?.name==='AbortError')throw pathErr;Diagnostics?.log?.('Circuit path optimiser skipped',String(pathErr?.message||pathErr));}
     }else if(skippedUnchanged&&SearchEngine?.buildReferenceIndex){
       // Refresh the lightweight reference/path indexes after a smart-skip batch.
       // This does not re-import data, and avoids the V3.1.79 state where files were loaded but reference points were not visible.
@@ -756,6 +761,8 @@ const ImportEngine={
   isLikelyUtilitySourceFile(fileName=''){
     if(this.isAssetOnlyFile?.(fileName))return false;
     const f=String(fileName||'').toUpperCase();
+    // Processed myMap sidecars/overlays must be imported; only raw public utility/background sources are skipped.
+    if(/MYMAP[_\s.-]*(?:ESA[_\s.-]*FAINT[_\s.-]*OVERLAY|FAINT[_\s.-]*OVERLAY|ESA[_\s.-]*OVERLAY)|ESA[_\s.-]*FAINT[_\s.-]*OVERLAY|POLE[_\s.-]*DRAW[_\s.-]*CONTEXT|UTILITY[_\s.-]*ROUTE[_\s.-]*SNIPPETS|DRAW[_\s.-]*CONTEXT/i.test(f))return false;
     return /WATER[_\s.-]*PIPE|WCORP[_\s.-]*(002|069|WATER)|\bWATER\b|SEWER|PRESSURE[_\s-]*MAIN|PETROLEUM|PIPELINE|DMIRS|\bGAS\b|RAIL|PTA|HIGH[_\s-]*VOLTAGE[_\s-]*DISTRIBUTION|WP[_\s-]*052|DISTRIBUTION[_\s.-]*UNDERGROUND[_\s.-]*CABLE|UNDERGROUND[_\s.-]*CABLE|\bCABLE\b|WP[_\s-]*034|ELECTRICAL[_\s-]*PILLAR|PILLARS?|WP[_\s-]*041|ELECTRICAL[_\s-]*ENCLOSURES?|ENCLOSURES?|WP[_\s-]*040|ENVIRONMENTALLY[_\s-]*SENSITIVE|CLEARING[_\s-]*REGULATIONS|DWER|ESA|WP[_\s-]*046/.test(f);
   },
   shouldDirectUtilityStore(){return false;},
@@ -856,7 +863,34 @@ const ImportEngine={
     const out=Array.isArray(baseRecords)?baseRecords:[];
     const incoming=Array.isArray(incomingRecords)?incomingRecords:[];
     const aliasToIndex=new Map();
-    const addAliases=(asset,idx)=>{for(const k of SearchEngine.keyAliases(asset))aliasToIndex.set(k,idx);};
+    const weakToIndexes=new Map();
+    const addWeak=(asset,idx)=>{
+      for(const k of (SearchEngine.weakStructureAliases?SearchEngine.weakStructureAliases(asset):[])){
+        if(!weakToIndexes.has(k))weakToIndexes.set(k,[]);
+        const arr=weakToIndexes.get(k);
+        if(!arr.includes(idx))arr.push(idx);
+      }
+    };
+    const addAliases=(asset,idx)=>{
+      for(const k of SearchEngine.keyAliases(asset))aliasToIndex.set(k,idx);
+      addWeak(asset,idx);
+    };
+    const findWeakHit=(rec)=>{
+      if(!SearchEngine.weakStructureAliases||!SearchEngine.compatibleWeakMergeCandidate)return undefined;
+      const seen=new Set();
+      const candidates=[];
+      for(const k of SearchEngine.weakStructureAliases(rec)){
+        for(const idx of (weakToIndexes.get(k)||[])){
+          if(seen.has(idx))continue;
+          seen.add(idx);
+          if(out[idx])candidates.push(out[idx]);
+        }
+      }
+      const chosen=SearchEngine.compatibleWeakMergeCandidate(candidates,rec);
+      if(!chosen)return undefined;
+      const idx=out.indexOf(chosen);
+      return idx>=0?idx:undefined;
+    };
     UI.progress(true,'Preparing merge…',`${fileName}: checking existing data · ${out.length.toLocaleString()} existing assets`,Math.round(((fileIndex+0.82)/Math.max(totalFiles,1))*92));
     await this.paint();
     for(let i=0;i<out.length;i++){
@@ -884,9 +918,9 @@ const ImportEngine={
       if(!Array.isArray(rec.sourceFiles))rec.sourceFiles=SearchEngine.fileList(rec);
       const aliases=SearchEngine.keyAliases(rec);
       const hit=aliases.find(k=>aliasToIndex.has(k));
-      if(hit===undefined){const idx=out.length; out.push(rec); addAliases(rec,idx);}
+      let idx=hit===undefined?findWeakHit(rec):aliasToIndex.get(hit);
+      if(idx===undefined){idx=out.length; out.push(rec); addAliases(rec,idx);}
       else{
-        const idx=aliasToIndex.get(hit);
         const merged=SearchEngine.mergePair(out[idx],rec);
         out[idx]=merged;
         addAliases(merged,idx);
@@ -1446,6 +1480,12 @@ const ImportEngine={
     if(conductorSpan)kind='conductor-span';
     if(publicRecovery&&!conductorSpan&&!utilityType&&!hvCrossing)kind='structure';
     if(utilityType)kind=`utility-${utilityType}`;
+    const rawKindText=String(raw.KIND||raw.kind||raw.asset_type||'').trim().toLowerCase();
+    const contextMode=Object.keys(raw||{}).some(k=>/^UTILITY_CONTEXT_MODE$/i.test(k));
+    const drawSidecar=String(raw.DRAW_CONTEXT_SIDECAR||'')==='1'||rawKindText==='utility-draw-context';
+    const fileLooksContext=/POLE[_\s-]*DRAW[_\s-]*CONTEXT|FAST[_\s-]*CONTEXT|UTILITY[_\s-]*ROUTE[_\s-]*SNIPPETS/i.test(String(fileName||''));
+    if(drawSidecar)kind='utility-draw-context';
+    else if(contextMode||fileLooksContext)kind='utility-context-sidecar';
     if(hvCrossing){kind='hv-crossing'; category='HV Crossing'; line=line||this.clean(raw.transmission_line||raw.tx_line||raw.circuit);}
     const firstNamePlate=this.clean(raw.FIRST_NAME_PLATE_ID||raw.FIRST_STRUCTURE||raw.FROM_STRUCTURE||raw.FIRST_POLE);
     const lastNamePlate=this.clean(raw.LAST_NAME_PLATE_ID||raw.LAST_STRUCTURE||raw.TO_STRUCTURE||raw.LAST_POLE);
@@ -1623,12 +1663,12 @@ const ImportEngine={
     if(!asset||typeof asset!=='object')return asset;
     const keep={};
     const raw=asset.raw||{};
-    const keepKey=/^(objectid|id|gid|structure_id|trmsn_line_gis_label|structure_label|line_name|line_name_1|nameplate_id_1|pole_type|matrl_typ_desc|struc_typ_desc|sub_struc_desc|struc_cat_desc|pole_len_m|pole_height_m|np_dwg_no|latitude|longitude|lat|lon|lng|line|circuit|circuit_name|tx_line|transmission_line|transmission_circuit|crossing_type|original_crossing_type|crossing_kind|crossing_group|hv_network|hv_type|dx_network|dx_type|distribution_network|from_label|to_label|from_pole_no|to_pole_no|method|tx_source_segment|hv_source_segment|field_map_layer|source_layer|render_hint|import_layer|show_on_map|visible|pick_id|equip_name|kv|typ_cde|netwk_name|len_km|st_length_shape_|route_point_count|line_part|geometry_type|substation|abbreviation|owner|search_field|aer_nsp|substation_type|infrastructure|network|water_type|nominal_size|material|mainname|pressure_type|pressure_main_use|nominal_diameter|pipe_material|name|title|label|title_id|type|purpose|holder_1|road_name|common_usage_name|xing_no|xing_type|network_type|esa_type|hectares|bushforev|wst_epp|aw_wetl50|anca_50m|ramsar_50m|regnatest|scp_wetl50|tec|whp|drf|pressure|voltage|asset_class|asset_type|category|cable_type|utility_marked|utility_badges|utility_types|utility_radius_m|utility_markup_source|utility_detail_summary|utility_details|detail_.*|(gas|water|sewer|hv_dist|ug_cable|rail|pillar|esa|telco|other)_(pressure|kpa|maop|mop|voltage|kv|diameter|diam|size|material|network|purpose|holder|operator|owner|title|licence|license|cable|water|main|type|asset_id|name).*|nearby_.*|nearest_.*_m|count_.*|source_.*|ref_.*)$/i;
+    const keepKey=/^(objectid|id|gid|structure_id|trmsn_line_gis_label|structure_label|line_name|line_name_1|nameplate_id_1|pole_type|matrl_typ_desc|struc_typ_desc|sub_struc_desc|struc_cat_desc|pole_len_m|pole_height_m|np_dwg_no|latitude|longitude|lat|lon|lng|line|circuit|circuit_name|tx_line|transmission_line|transmission_circuit|crossing_type|original_crossing_type|crossing_kind|crossing_group|hv_network|hv_type|dx_network|dx_type|distribution_network|from_label|to_label|from_pole_no|to_pole_no|method|tx_source_segment|hv_source_segment|field_map_layer|source_layer|render_hint|import_layer|show_on_map|visible|pick_id|equip_name|kv|typ_cde|netwk_name|len_km|st_length_shape_|route_point_count|line_part|geometry_type|substation|abbreviation|owner|search_field|aer_nsp|substation_type|infrastructure|network|water_type|nominal_size|material|mainname|pressure_type|pressure_main_use|nominal_diameter|pipe_material|name|title|label|title_id|type|purpose|holder_1|road_name|common_usage_name|xing_no|xing_type|network_type|esa_type|hectares|bushforev|wst_epp|aw_wetl50|anca_50m|ramsar_50m|regnatest|scp_wetl50|tec|whp|drf|pressure|voltage|asset_class|asset_type|category|cable_type|utility_marked|utility_badges|utility_types|utility_radius_m|utility_markup_source|utility_detail_summary|utility_details|utility_drawable_context|utility_geom_.*|utility_point_.*|esa_geom_.*|draw_context_sidecar|kind|detail_.*|(gas|water|sewer|hv_dist|ug_cable|rail|pillar|esa|telco|other)_(pressure|kpa|maop|mop|voltage|kv|diameter|diam|size|material|network|purpose|holder|operator|owner|title|licence|license|cable|water|main|type|asset_id|name).*|nearby_.*|nearest_.*_m|count_.*|source_.*|ref_.*)$/i;
     for(const [k,v] of Object.entries(raw)){
       if(v===undefined||v===null)continue;
       if(!keepKey.test(k))continue;
       const text=String(v);
-      if(text.length>600)continue;
+      if(text.length>600&&!/^ESA_GEOM_/i.test(k))continue;
       keep[k]=v;
     }
     asset.raw=keep;
@@ -1645,14 +1685,13 @@ const ImportEngine={
   },
   isAssetOnlyFile(fileName=''){
     const f=String(fileName||'').toUpperCase();
-    // These are real myMap asset layers. They must never be diverted into the
-    // lazy utility store just because an attribute contains words such as cable,
-    // kV, network, or electrical. Keeping them as normal searchable assets also
-    // stops the popup from trying to load a phantom utility store for transformer files.
-    const assetOnly=/FIELD[_\s-]*MAP[_\s-]*READY(POL|TOW|NOM|SUB|SUBREAL|COND)|READY(POL|TOW|NOM|SUB|SUBREAL|COND)[_\s-]*BUNDLE|TRANSFORMER|ELECTRICAL[_\s-]*TRANSFORMERS?|WP[_\s-]*039|STREET[_\s-]*LIGHT|STREETLIGHT|LUMINAIRE|DISTRIBUTION[_\s-]*POLE|DX[_\s-]*POLE|DIST[_\s-]*POLE|ELECTRICAL[_\s-]*POLE|TRANSMISSION[_\s-]*POLE|STRUCTURE|TOWER|SUBSTATION|SWITCHYARD/.test(f);
-    if(!assetOnly)return false;
-    const explicitUtility=/WATER[_\s-]*PIPE|WCORP|SEWER|PRESSURE[_\s-]*MAIN|PETROLEUM|PIPELINE|DMIRS|GAS|RAIL|PTA|DISTRIBUTION[_\s.-]*UNDERGROUND[_\s.-]*CABLE|UNDERGROUND[_\s.-]*CABLE|\bCABLE\b|WP[_\s-]*034|ELECTRICAL[_\s-]*PILLAR|PILLARS?|WP[_\s-]*041|HIGH[_\s-]*VOLTAGE[_\s-]*DISTRIBUTION|WP[_\s-]*052|DISTRIBUTION[_\s.-]*OVERHEAD[_\s.-]*POWERLINES?|WP[_\s-]*031|ENVIRONMENTALLY[_\s-]*SENSITIVE|CLEARING[_\s-]*REGULATIONS|DWER|ESA|WP[_\s-]*046/.test(f);
-    return !explicitUtility;
+    // Real searchable myMap assets must not be diverted into background utility handling
+    // just because their new popup context fields contain kV/HV/cable/network wording.
+    if(/TRANSMISSION[_\s-]*POLE|TRMSN[_\s-]*POLE|TOWER|STRUCTURE/.test(f))return true;
+    if(/TRANSFORMER|ELECTRICAL[_\s-]*TRANSFORMERS?|WP[_\s-]*039/.test(f))return true;
+    if(/ELECTRICAL[_\s-]*ENCLOSURES?|ENCLOSURES?|ENCLOSURE|WP[_\s-]*040|DISTBOX|DIST[_\s-]*BOX|ENCASSET/.test(f))return true;
+    if(/FIELD[_\s-]*MAP[_\s-]*READY(POL|TOW|NOM|SUB|SUBREAL|COND)|READY(POL|TOW|NOM|SUB|SUBREAL|COND)[_\s-]*BUNDLE|STREET[_\s-]*LIGHT|STREETLIGHT|LUMINAIRE|DISTRIBUTION[_\s-]*POLE|DX[_\s-]*POLE|DIST[_\s-]*POLE|ELECTRICAL[_\s-]*POLE|SUBSTATION|SWITCHYARD/.test(f))return true;
+    return false;
   },
   categoryFromFile(fileName,geomType=''){
     const f=String(fileName||'').toUpperCase();
@@ -1677,6 +1716,8 @@ const ImportEngine={
     return geomType||'GeoJSON asset';
   },
   kindFrom(v){
+    const forced=String(v?.raw?.KIND||v?.raw?.kind||'').trim().toLowerCase();
+    if(forced==='utility-draw-context')return 'utility-draw-context';
     const text=Object.values(v).filter(x=>typeof x==='string').join(' ').toUpperCase();
     const rawText=Object.entries(v.raw||{}).map(([k,val])=>`${k} ${val}`).join(' ').toUpperCase();
     const file=String(v.fileName||'').toUpperCase();
@@ -1764,3 +1805,167 @@ const ImportEngine={
 };
 if(typeof window!=='undefined')window.ImportEngine=ImportEngine;
 if(typeof self!=='undefined')self.ImportEngine=ImportEngine;
+
+
+/* myMap v3.1.156: stronger cancel + bulk import responsiveness */
+(function(){
+  if(typeof ImportEngine==='undefined')return;
+  const originalCancel=ImportEngine.cancelImport?.bind(ImportEngine);
+  ImportEngine.cancelImport=function(){
+    this.cancelRequested=true;
+    this.cancelReason='Import cancelled by user';
+    try{
+      if(typeof SearchEngine!=='undefined'){
+        SearchEngine.indexCancelRequested=true;
+        SearchEngine.indexCancelReason='Index rebuild cancelled by user';
+        if(SearchEngine.indexRunning&&SearchEngine.cancelRebuild)SearchEngine.cancelRebuild();
+      }
+    }catch(_e){}
+    try{return originalCancel?originalCancel():undefined;}catch(e){
+      try{this.currentWorker?.terminate?.();}catch(_e){}
+      try{this.currentReader?.abort?.();}catch(_e){}
+      try{this.currentStreamReader?.cancel?.(this.makeAbortError('Import cancelled.'));}catch(_e){}
+      try{this.currentReject?.(this.makeAbortError('Import cancelled.'));}catch(_e){}
+      UI?.toast?.('Cancelling import…');
+    }
+  };
+
+  const originalCompact=ImportEngine.compactImportRecords?.bind(ImportEngine);
+  ImportEngine.compactImportRecords=function(records=[],mode='normal'){
+    const list=Array.isArray(records)?records:[];
+    if(this.cancelRequested)throw this.makeAbortError(this.cancelReason||'Import cancelled');
+    // Full raw-field compaction is expensive on very large phone imports. Keep the same
+    // records instead of blocking the UI for a long single loop; storage compaction still
+    // runs when supported by the per-file save layer.
+    if(list.length>35000){
+      return {records:list,rawFieldsBefore:0,rawFieldsAfter:0,rawFieldsDropped:0,compacted:0,bulkFastPath:true};
+    }
+    return originalCompact?originalCompact(list,mode):{records:list,rawFieldsBefore:0,rawFieldsAfter:0,rawFieldsDropped:0,compacted:0};
+  };
+})();
+
+
+/* myMap v3.1.200: resumable open-app import checkpoints.
+   Mobile browsers do not reliably run large imports while minimised/locked. This keeps import work
+   chunked while the app is open, saves progress after completed chunks/files, and lets the user
+   re-select the same files to resume. Completed files are skipped by signature. */
+(function(){
+  const IE=window.ImportEngine;
+  if(!IE||IE.__v200ResumableImport)return; IE.__v200ResumableImport=true;
+  IE.resumableVersion='v3.1.200';
+  IE.resumeKey='myMap.importResume.v200';
+  IE.resumeState={active:false,files:[],startedAt:null,completed:{},lastStatus:'idle'};
+
+  IE.importFileSignature=function(file){
+    return {name:String(file?.name||''),size:Number(file?.size)||0,lastModified:Number(file?.lastModified)||0};
+  };
+  IE.signatureKey=function(sig){return [sig?.name||'',sig?.size||0,sig?.lastModified||0].join('|');};
+  IE.readImportCheckpoint=function(){
+    try{return JSON.parse(localStorage.getItem(this.resumeKey)||'null')||null;}catch(_){return null;}
+  };
+  IE.writeImportCheckpoint=function(patch={}){
+    try{
+      const prev=this.readImportCheckpoint()||{};
+      const next=Object.assign({},prev,patch,{version:this.resumableVersion,updatedAt:new Date().toISOString()});
+      localStorage.setItem(this.resumeKey,JSON.stringify(next));
+      return next;
+    }catch(_){return null;}
+  };
+  IE.clearImportCheckpoint=function(){try{localStorage.removeItem(this.resumeKey);}catch(_){ } this.resumeState={active:false,files:[],completed:{},lastStatus:'idle'};};
+  IE.checkpointSummary=function(){
+    const cp=this.readImportCheckpoint();
+    if(!cp||!Array.isArray(cp.files)||!cp.files.length)return {exists:false};
+    const total=cp.files.length;
+    const done=Object.keys(cp.completed||{}).length;
+    return {exists:true,status:cp.status||'unknown',total,done,remaining:Math.max(0,total-done),updatedAt:cp.updatedAt||'',startedAt:cp.startedAt||'',current:cp.currentFile||''};
+  };
+  IE.formatCheckpointLabel=function(){
+    const s=this.checkpointSummary();
+    if(!s.exists)return 'No interrupted import checkpoint.';
+    return `${s.done}/${s.total} file(s) complete${s.current?` · last: ${s.current}`:''}`;
+  };
+  IE.markCheckpointStatus=function(status,fileName='',extra={}){
+    try{
+      const cp=this.readImportCheckpoint(); if(!cp)return null;
+      if(fileName)cp.currentFile=String(fileName||'');
+      cp.status=status||cp.status||'running';
+      Object.assign(cp,extra||{});
+      cp.updatedAt=new Date().toISOString();
+      localStorage.setItem(this.resumeKey,JSON.stringify(cp));
+      return cp;
+    }catch(_){return null;}
+  };
+  IE.markCheckpointFileDone=function(fileName='',patch={}){
+    try{
+      const cp=this.readImportCheckpoint(); if(!cp||!Array.isArray(cp.files))return null;
+      const row=cp.files.find(f=>String(f.name||'')===String(fileName||''));
+      if(!row)return cp;
+      cp.completed=cp.completed||{};
+      cp.completed[this.signatureKey(row)]=Object.assign({},row,patch,{doneAt:new Date().toISOString()});
+      cp.currentFile='';
+      cp.updatedAt=new Date().toISOString();
+      localStorage.setItem(this.resumeKey,JSON.stringify(cp));
+      return cp;
+    }catch(_){return null;}
+  };
+  IE.acquireImportWakeLock=async function(){
+    try{
+      if(this.importWakeLock||!navigator?.wakeLock?.request)return null;
+      this.importWakeLock=await navigator.wakeLock.request('screen');
+      this.importWakeLock.addEventListener?.('release',()=>{this.importWakeLock=null;});
+      return this.importWakeLock;
+    }catch(_){return null;}
+  };
+  IE.releaseImportWakeLock=async function(){try{await this.importWakeLock?.release?.();}catch(_){ } this.importWakeLock=null;};
+
+  const oldSet=IE.setIndexHealthFile?.bind(IE);
+  IE.setIndexHealthFile=function(name,patch={}){
+    const row=oldSet?oldSet(name,patch):patch;
+    try{
+      const st=String(patch?.status||row?.status||'').toLowerCase();
+      if(st) this.markCheckpointStatus(st,name||'');
+      if(/^(active|unchanged\s*-\s*skipped|skipped-optional-background|dx-pole-indexed|skipped|crossing-sidecar)$/i.test(st)||patch?.indexFinishedAt||patch?.finishedAt){
+        this.markCheckpointFileDone(name||'',{status:patch?.status||row?.status||'complete'});
+      }
+    }catch(_){ }
+    return row;
+  };
+
+  const oldImport=IE.importFiles?.bind(IE);
+  IE.importFiles=async function(files,opts={}){
+    const list=Array.from(files||[]).filter(Boolean);
+    if(!list.length)return oldImport?oldImport(files,opts):{imported:0,files:[]};
+    const sigs=list.map(f=>this.importFileSignature(f));
+    const resumeMode=!!(opts&&opts.resumeSelectedQueue);
+    this.writeImportCheckpoint({
+      status:'running',
+      startedAt:new Date().toISOString(),
+      files:sigs,
+      completed:{},
+      currentFile:'',
+      resumeMode,
+      note:'Keep app open. If interrupted, choose Resume interrupted import and re-select the same files.'
+    });
+    try{await this.acquireImportWakeLock?.();}catch(_){ }
+    try{
+      const res=await oldImport(list,opts);
+      this.writeImportCheckpoint({status:'complete',completed:this.readImportCheckpoint()?.completed||{},currentFile:'',finishedAt:new Date().toISOString()});
+      // Keep a short completed checkpoint visible for the Data Manager, then allow manual clear.
+      return res;
+    }catch(err){
+      const status=err?.name==='AbortError'?'stopped':'failed';
+      this.writeImportCheckpoint({status,currentFile:this.readImportCheckpoint()?.currentFile||'',error:String(err?.message||err||''),stoppedAt:new Date().toISOString()});
+      throw err;
+    }finally{
+      try{await this.releaseImportWakeLock?.();}catch(_){ }
+    }
+  };
+
+  const oldCancel=IE.cancelImport?.bind(IE);
+  IE.cancelImport=function(){
+    try{this.markCheckpointStatus('stopping',this.readImportCheckpoint()?.currentFile||'',{note:'Stopped by user. Re-select the same files to resume; completed files stay saved.'});}catch(_){ }
+    const out=oldCancel?oldCancel():undefined;
+    try{UI?.toast?.('Stopping import. Completed files stay saved; re-select the same files to resume.');}catch(_){ }
+    return out;
+  };
+})();

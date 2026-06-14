@@ -4,8 +4,8 @@
 (function(){
   const KEY='FieldMAP.hvTxCrossings.sidecar.v1';
   const MAX_VIEW_DRAW=1200;
-  const MAX_DYNAMIC_TX=0; // disabled: dynamic TX from shared/dual circuit geometry was creating false crossing counts.
-  const MAX_TX_SEGMENT_KM=2.5; // direct TX crossing segments only; skips bad long jumps between unrelated structure legs.
+  const MAX_DYNAMIC_TX=160; // v3.1.202: conservative fallback for missing curated TX crossing points on loaded circuits.
+  const MAX_TX_SEGMENT_KM=6.0; // direct TX crossing segments only; skips bad long jumps between unrelated structure legs.
   const MIN_CROSSING_ZOOM=7; // Selected-circuit HV/TX markers stay visible at wide patrol/preview zooms; counts stay available.
   const WA={minLat:-36.5,maxLat:-12.0,minLon:112.0,maxLon:130.5};
   function esc(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
@@ -50,14 +50,64 @@
       r.hvType,r.hv,r.type,r.title,r.label,r.sourceFile
     ].map(v=>String(v||'')).join(' ').toUpperCase();
   }
+  function rawFirst(raw,names){
+    raw=raw||{};
+    for(const name of names||[]){
+      for(const [k,v] of Object.entries(raw)){
+        if(v===undefined||v===null||String(v).trim()==='')continue;
+        if(String(k).toLowerCase().replace(/[^a-z0-9]/g,'')===String(name).toLowerCase().replace(/[^a-z0-9]/g,''))return String(v).trim();
+      }
+    }
+    return '';
+  }
+  function formatKvText(v){
+    const text=String(v||'').trim();
+    if(!text)return '';
+    if(/unknown/i.test(text))return text;
+    if(/\bkV\b/i.test(text)&&/\d/.test(text)){
+      const m=text.match(/(\d+(?:\.\d+)?)/);
+      if(m){const x=Number(m[1]); if(Number.isFinite(x))return Math.abs(x-Math.round(x))<0.05?`${Math.round(x)} kV`:`${x.toFixed(1).replace(/\.0$/,'')} kV`;}
+      return text.replace(/\s+/g,' ');
+    }
+    const m=text.match(/(\d+(?:\.\d+)?)/);
+    if(!m)return '';
+    const x=Number(m[1]);
+    if(!Number.isFinite(x)||x<1)return '';
+    return Math.abs(x-Math.round(x))<0.05?`${Math.round(x)} kV`:`${x.toFixed(1).replace(/\.0$/,'')} kV`;
+  }
+  function phaseText(v){
+    const text=String(v||'').trim();
+    if(!text)return '';
+    if(/unknown/i.test(text))return text;
+    const m=text.match(/\b([123])\s*ph\b/i);
+    if(m)return `${m[1]}Ph`;
+    return '';
+  }
+  function cleanHvTypeText(v){
+    const text=String(v||'').trim();
+    if(/\bHVUG\b|UNDER\s*GROUND|UNDERGROUND|\bUG\b/i.test(text))return 'HVUG';
+    if(/\bHVOH\b|OVER\s*HEAD|OVERHEAD|\bOH\b/i.test(text))return 'HVOH';
+    return '';
+  }
+  function firstNum(v){const m=String(v||'').match(/(\d+(?:\.\d+)?)/); return m?Number(m[1]):NaN;}
+  function crossingKv(raw,r){
+    const all=[rawFirst(raw,['hv_type','HV_TYPE','dx_type','DX_TYPE','type','TYPE','kv','KV']),r?.hvType,r?.hvPhases,rawFirst(raw,['phases','PHASES','phase','PHASE'])].map(x=>String(x||'')).join(' ');
+    const ph=phaseText(all);
+    const typeNum=firstNum(all);
+    if(ph==='1Ph'&&Number.isFinite(typeNum)&&typeNum>=5&&typeNum<20)return formatKvText(typeNum);
+    return formatKvText(rawFirst(raw,['hv_kv','HV_KV','nearby_hv_kv','kv','KV','voltage','VOLTAGE'])||r?.hvKv||r?.kv||'');
+  }
+  function crossingPhases(raw,r,hvType=''){
+    return phaseText(rawFirst(raw,['hv_phases','HV_PHASES','phases','PHASES','phase','PHASE','nearby_hv_phases'])||r?.hvPhases||hvType||rawFirst(raw,['kv','KV','hv_type','HV_TYPE','dx_type','DX_TYPE'])||'');
+  }
   function isUndergroundHV(raw,r){
     const txt=hvText(raw,r);
     // Only block true underground HV. Do not treat HVOH as UG just because it contains HV.
-    return /\bHVUG\b|UNDER\s*GROUND|UNDERGROUND|UNDERGROUND\s*CABLE|\bUG\s*(?:1PH|3PH|CABLE|HV|DIST|DISTRIBUTION)?\b/.test(txt);
+    return /\bHVUG\b|UNDER\s*GROUND|UNDERGROUND|UNDERGROUND\s*CABLE|\bUG\s*(?:1PH|2PH|3PH|CABLE|HV|DIST|DISTRIBUTION)?\b/.test(txt);
   }
   function isOverheadHV(raw,r){
     const txt=hvText(raw,r);
-    return /\bHVOH\b|OVER\s*HEAD|OVERHEAD|\bOH\s*(?:1PH|3PH|HV|DIST|DISTRIBUTION)?\b/.test(txt);
+    return /\bHVOH\b|OVER\s*HEAD|OVERHEAD|\bOH\s*(?:1PH|2PH|3PH|HV|DIST|DISTRIBUTION)?\b/.test(txt);
   }
   function hvRecordIsOverhead(r){
     const raw=rawOf(r);
@@ -67,16 +117,9 @@
     return typeText?isOverheadHV(raw,r):true;
   }
   function txLooksSharedEndpoint(r){
-    if(!r||r.type!=='TX')return false;
-    const raw=rawOf(r);
-    const lines=uniqueLines([r.line,...(Array.isArray(r.otherLines)?r.otherLines:[]),raw.transmission_line,raw.transmission_line_2,raw.tx_line,raw.tx_line_2,raw.line_a,raw.line_b]);
-    if(lines.length<2)return false;
-    const base=fmtLine(lines[0]);
-    for(let i=1;i<lines.length;i++){
-      const other=fmtLine(lines[i]);
-      // Same-voltage lines sharing a terminal are usually a common endpoint/dual-circuit/shared bay, not a span crossing.
-      if(base&&other&&sameCircuitToken(base,other)&&sharesEndpointCode(base,other))return true;
-    }
+    // v3.1.209: do not drop TX/TX records just because two lines share an endpoint code.
+    // KOJ-MBR 81 x KOJ-ALB/FRW 81 is a real span crossing, but both names share KOJ.
+    // Terminal/substation clusters are now suppressed at draw/import-data level instead.
     return false;
   }
   function isVisibleRecord(r){
@@ -121,17 +164,20 @@
     const lines=lineCandidates(raw,r); if(!lines.length)return [];
     const from=String(raw.from_label||raw.FROM_LABEL||raw.from_pole_no||raw.FROM_POLE_NO||raw.from||'').trim();
     const to=String(raw.to_label||raw.TO_LABEL||raw.to_pole_no||raw.TO_POLE_NO||raw.to||'').trim();
-    const hv=String(raw.hv_network||raw.HV_NETWORK||raw.dx_network||raw.DX_NETWORK||raw.distribution_network||raw.DISTRIBUTION_NETWORK||raw.network||raw.NETWORK||raw.hv_name||'').trim();
-    const hvType=String(raw.hv_type||raw.HV_TYPE||raw.dx_type||raw.DX_TYPE||raw.type||raw.TYPE||'').trim();
+    const hv=String(raw.hv_network||raw.HV_NETWORK||raw.dx_network||raw.DX_NETWORK||raw.distribution_network||raw.DISTRIBUTION_NETWORK||raw.network||raw.NETWORK||raw.netwk_name||raw.NETWK_NAME||raw.hv_name||'').trim();
+    const hvTypeRaw=String(raw.hv_type||raw.HV_TYPE||raw.dx_type||raw.DX_TYPE||raw.type||raw.TYPE||raw.kv||raw.KV||'').trim();
+    const hvType=cleanHvTypeText(hvTypeRaw)||hvTypeRaw;
+    const hvKv=crossingKv(raw,r);
+    const hvPhases=crossingPhases(raw,r,hvType);
     const method=String(raw.method||raw.METHOD||'').trim();
     const titleBase=String(raw.name||raw.title||raw.label||`${type} crossing`).trim();
     const out=[];
     for(const line of lines){
       const otherLines=lines.filter(x=>compact(x)!==compact(line));
       const title=titleBase||`${line} ${type} crossing`;
-      const idBase=[line,type,otherLines.join('/'),from,to,hv,hvType,p.lat.toFixed(7),p.lon.toFixed(7)].join('|');
+      const idBase=[line,type,otherLines.join('/'),from,to,hv,hvType,hvKv,hvPhases,p.lat.toFixed(7),p.lon.toFixed(7)].join('|');
       let h=2166136261; for(let i=0;i<idBase.length;i++){h^=idBase.charCodeAt(i);h=Math.imul(h,16777619);} 
-      out.push({id:'x'+(h>>>0).toString(16),sourceFile:String(sourceFile||r?.sourceFile||raw.sourceFile||''),line,lineKey:compact(line),otherLines,type,lat:p.lat,lon:p.lon,from,to,hv,hvType,method,title,raw:{crossing_type:raw.crossing_type||raw.original_crossing_type||'',transmission_line:line,hv_network:hv,hv_type:hvType,dx_type:raw.dx_type||raw.DX_TYPE||'',network_type:raw.network_type||raw.NETWORK_TYPE||'',from_label:raw.from_label||'',to_label:raw.to_label||'',from_pole_no:raw.from_pole_no||'',to_pole_no:raw.to_pole_no||'',tx_source_segment:raw.tx_source_segment||raw.TX_SOURCE_SEGMENT||'',method}});
+      out.push({id:'x'+(h>>>0).toString(16),sourceFile:String(sourceFile||r?.sourceFile||raw.sourceFile||''),line,lineKey:compact(line),otherLines,type,lat:p.lat,lon:p.lon,from,to,hv,hvType,hvKv,hvPhases,method,title,raw:{crossing_type:raw.crossing_type||raw.original_crossing_type||'',transmission_line:line,hv_network:hv,hv_type:hvType,hv_kv:hvKv,hv_phases:hvPhases,kv:raw.kv||raw.KV||'',phases:raw.phases||raw.PHASES||'',dx_type:raw.dx_type||raw.DX_TYPE||'',network_type:raw.network_type||raw.NETWORK_TYPE||'',from_label:raw.from_label||'',to_label:raw.to_label||'',from_pole_no:raw.from_pole_no||'',to_pole_no:raw.to_pole_no||'',tx_source_segment:raw.tx_source_segment||raw.TX_SOURCE_SEGMENT||'',method}});
     }
     return out;
   }
@@ -227,7 +273,7 @@
     const den=(x1-x2)*(y3-y4)-(y1-y2)*(x3-x4); if(Math.abs(den)<1e-12)return null;
     const t=((x1-x3)*(y3-y4)-(y1-y3)*(x3-x4))/den;
     const u=((x1-x3)*(y1-y2)-(y1-y3)*(x1-x2))/den;
-    if(t<=0.02||t>=0.98||u<=0.02||u>=0.98)return null; // avoid shared tower/end point hits.
+    if(t<=0.001||t>=0.999||u<=0.001||u>=0.999)return null; // v3.1.205: allow near-end TX crossings while still skipping exact shared endpoints.
     const lon=x1+t*(x2-x1), lat=y1+t*(y2-y1);
     return valid(lat,lon)?{lat,lon,t,u}:null;
   }
@@ -250,7 +296,19 @@
   }
   function segmentDirectCrossing(s1,s2){
     const hit=segmentIntersection(s1,s2);
-    return hit?{...hit,km:0,kind:'intersect'}:null;
+    if(hit)return {...hit,km:0,kind:'intersect'};
+    // v3.1.204: fallback for real TX crossings where the two source routes are slightly offset.
+    // Use only after angle filtering, and only within ~35 m, so it catches missing points without creating broad false matches.
+    const cand=[];
+    const pts=[s1.a,s1.b];
+    for(const p of pts)cand.push({p,km:pointToSegmentKm(p,s2)});
+    for(const p of [s2.a,s2.b])cand.push({p,km:pointToSegmentKm(p,s1)});
+    cand.sort((a,b)=>a.km-b.km);
+    const best=cand[0];
+    if(best&&Number.isFinite(best.km)&&best.km<=0.080){
+      return {lat:best.p.lat,lon:best.p.lon,t:.5,u:.5,km:best.km,kind:'near-span'};
+    }
+    return null;
   }
   function assetPoint(a){const lat=n(a?.lat), lon=n(a?.lon); return valid(lat,lon)?{lat,lon,asset:a}:null;}
 
@@ -258,7 +316,7 @@
     if(!r)return '';
     const lat=n(r.lat), lon=n(r.lon);
     if(lat===null||lon===null)return '';
-    return [compact(r.line),r.type||'',(r.otherLines||[]).map(compact).sort().join('/'),String(r.from||''),String(r.to||''),String(r.hv||''),String(r.hvType||''),lat.toFixed(6),lon.toFixed(6)].join('|');
+    return [compact(r.line),r.type||'',(r.otherLines||[]).map(compact).sort().join('/'),String(r.from||''),String(r.to||''),String(r.hv||''),String(r.hvType||''),String(r.hvKv||''),String(r.hvPhases||''),lat.toFixed(6),lon.toFixed(6)].join('|');
   }
   function normTypes(types){
     if(!types)return ['HV','TX'];
@@ -303,18 +361,18 @@
         .hvtx-crossing-icon.stacked{min-width:54px;font-size:11px;}
         .hvtx-crossing-icon.hv{background:#b31313;}
         .hvtx-crossing-icon.tx{background:#b31313;}
-        .hvtx-toggle-panel{position:absolute;left:8px;bottom:52px;top:auto;z-index:630;display:flex;flex-direction:column-reverse;gap:5px;pointer-events:auto;width:min(174px,calc(100vw - 20px));max-height:30vh;overflow-y:auto;overscroll-behavior:contain;padding:2px 0;}
+        .hvtx-toggle-panel{position:absolute;left:8px;bottom:52px;top:auto;z-index:630;display:flex;flex-direction:column-reverse;gap:3px;pointer-events:auto;width:min(148px,calc(100vw - 20px));max-height:30vh;overflow-y:auto;overscroll-behavior:contain;padding:0;}
         .hvtx-toggle-panel.hidden{display:none;}
-        .hvtx-circuit-row{display:flex;flex-direction:column;gap:3px;align-items:stretch;padding:2px;border-radius:12px;background:rgba(58,24,24,.04);backdrop-filter:blur(1px);}
+        .hvtx-circuit-row{display:flex;flex-direction:column;gap:3px;align-items:stretch;padding:0;border-radius:10px;background:rgba(58,24,24,.04);backdrop-filter:blur(1px);}
         .hvtx-circuit-label{display:none;}
-        .hvtx-toggle-btn{width:100%;min-height:40px;border-radius:12px;border:1.5px solid rgba(255,255,255,.78);background:#7a0f0f;color:#fff;box-shadow:0 4px 10px rgba(0,0,0,.22);font:900 12px/1 system-ui,-apple-system,Segoe UI,sans-serif;letter-spacing:.1px;display:grid;grid-template-columns:30px minmax(0,1fr) 30px;align-items:center;gap:5px;padding:6px 8px;opacity:.36;filter:grayscale(.25);text-align:left;}
-        .hvtx-toggle-btn .hvtx-type{font:950 14px/1 system-ui,-apple-system,Segoe UI,sans-serif;letter-spacing:.15px;}
-        .hvtx-toggle-btn .hvtx-line{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:900 12px/1 system-ui,-apple-system,Segoe UI,sans-serif;text-transform:uppercase;}
-        .hvtx-toggle-btn .hvtx-count{min-width:26px;text-align:right;font:950 14px/1 system-ui,-apple-system,Segoe UI,sans-serif;}
-        .hvtx-toggle-btn.active{opacity:1;background:#c31717;filter:none;box-shadow:0 4px 12px rgba(179,19,19,.36);}
+        .hvtx-toggle-btn{width:100%;min-height:29px;border-radius:9px;border:1.25px solid rgba(255,255,255,.72);background:#7a0f0f;color:#fff;box-shadow:0 2px 7px rgba(0,0,0,.20);font:900 11px/1 system-ui,-apple-system,Segoe UI,sans-serif;letter-spacing:.05px;display:grid;grid-template-columns:23px minmax(0,1fr) 25px;align-items:center;gap:4px;padding:4px 6px;opacity:.36;filter:grayscale(.25);text-align:left;}
+        .hvtx-toggle-btn .hvtx-type{font:950 12px/1 system-ui,-apple-system,Segoe UI,sans-serif;letter-spacing:.1px;}
+        .hvtx-toggle-btn .hvtx-line{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:900 10.2px/1 system-ui,-apple-system,Segoe UI,sans-serif;text-transform:uppercase;}
+        .hvtx-toggle-btn .hvtx-count{min-width:22px;text-align:right;font:950 12px/1 system-ui,-apple-system,Segoe UI,sans-serif;}
+        .hvtx-toggle-btn.active{opacity:1;background:#c31717;filter:none;box-shadow:0 3px 9px rgba(179,19,19,.30);}
         .hvtx-toggle-btn.empty{opacity:.22;}
         .hvtx-toggle-btn:active{transform:translateY(1px);}
-        @media (max-height:720px){.hvtx-toggle-panel{bottom:48px;max-height:26vh;width:min(168px,calc(100vw - 20px))}.hvtx-toggle-btn{min-height:36px;border-radius:11px;padding:5px 7px}.hvtx-toggle-btn .hvtx-line{font-size:11px}.hvtx-toggle-btn .hvtx-type{font-size:13px}.hvtx-toggle-btn .hvtx-count{font-size:13px}}
+        @media (max-height:720px){.hvtx-toggle-panel{bottom:48px;max-height:26vh;width:min(144px,calc(100vw - 20px))}.hvtx-toggle-btn{min-height:28px;border-radius:9px;padding:4px 6px}.hvtx-toggle-btn .hvtx-line{font-size:9.8px}.hvtx-toggle-btn .hvtx-type{font-size:11.5px}.hvtx-toggle-btn .hvtx-count{font-size:11.5px}}
         .hvtx-popup{min-width:210px;max-width:280px;font:600 13px/1.25 system-ui,-apple-system,Segoe UI,sans-serif;color:#17351f;}
         .hvtx-popup b{display:block;font-size:15px;margin-bottom:6px;}
         .hvtx-popup .row{display:flex;gap:8px;justify-content:space-between;border-top:1px solid #e6ddca;padding:6px 0;}
@@ -373,15 +431,28 @@
     async migrateStoredAssetCrossings(){return {moved:0};},
     stats(){const total=(this.records||[]).length; const hv=this.records.filter(r=>r.type==='HV').length; const tx=this.records.filter(r=>r.type==='TX').length; const txSource=!!(tx||this.hasTxGeometry()); return {total,hv,dx:hv,tx,txSource,active:this.activeCount||0,activeDx:!!this.activeTypes.HV,activeTx:!!this.activeTypes.TX,mode:this.activeMode||'',line:this.activeLine||''};},
     iconFor(r){const cls=r.type==='TX'?'tx':'hv'; const base=r.type==='TX'?'TX':'HV'; const count=Number(r._groupCount||1); const label=count>1?`${base} ${count}`:base; const size=count>1?[54,42]:[42,42]; return L.divIcon({className:'',html:`<div class="hvtx-crossing-icon ${cls} ${count>1?'stacked':''}">${label}</div>`,iconSize:size,iconAnchor:[size[0]/2,21],popupAnchor:[0,-21]});},
+    hvDisplayFor(r){
+      const parse=window.myMapHvDisplay?.parse;
+      const input={kv:r.hvKv||r?.raw?.hv_kv||r?.raw?.kv||'',phases:r.hvPhases||r?.raw?.hv_phases||r?.raw?.phases||'',type:r.hvType||r?.raw?.hv_type||r?.raw?.dx_type||r?.raw?.kv||'',network:r.hv||''};
+      if(parse){try{return parse(input);}catch(_){}}
+      return {displayKv:r.hvKv||'',phases:r.hvPhases||'',hvType:cleanHvTypeText(r.hvType)||r.hvType||'',summary:[r.hvKv,r.hvPhases,cleanHvTypeText(r.hvType)||r.hvType].filter(Boolean).join(' · ')};
+    },
     popupHtml(r){
       const gm=`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(Number(r.lat).toFixed(7)+','+Number(r.lon).toFixed(7))}`;
       const recs=Array.isArray(r._groupRecords)&&r._groupRecords.length?r._groupRecords:[r];
+      const fmtRec=(x)=>{
+        if(x.type==='TX')return [x.otherLines?.join(', ')||x.line,x.method].filter(Boolean).join(' · ');
+        const d=this.hvDisplayFor(x)||{};
+        return [x.hv||x.otherLines?.join(', ')||x.line,d.displayKv,d.phases,d.hvType].filter(Boolean).join(' · ');
+      };
       if(recs.length>1){
-        const rows=recs.slice(0,12).map((x,i)=>`<div class="row"><span>${i+1}</span><strong>${esc([x.hv||x.otherLines?.join(', ')||x.line,x.hvType].filter(Boolean).join(' · '))}</strong></div>`).join('');
+        const rows=recs.slice(0,12).map((x,i)=>`<div class="row"><span>${i+1}</span><strong>${esc(fmtRec(x))}</strong></div>`).join('');
         const more=recs.length>12?`<div class="row"><span>More</span><strong>${recs.length-12} more at this spot</strong></div>`:'';
         return `<div class="hvtx-popup"><b>${r.type==='TX'?'TX crossings':'HV crossings'} × ${recs.length}</b><div class="row"><span>Line</span><strong>${esc(r.line)}</strong></div>${(r.from||r.to)?`<div class="row"><span>Between</span><strong>${esc([r.from,r.to].filter(Boolean).join(' → '))}</strong></div>`:''}${rows}${more}<a href="${gm}" target="_blank" rel="noopener">Google Maps</a></div>`;
       }
-      return `<div class="hvtx-popup"><b>${r.type==='TX'?'TX crossing':'HV crossing'}</b><div class="row"><span>Line</span><strong>${esc(r.line)}</strong></div>${r.otherLine?`<div class="row"><span>Other</span><strong>${esc(r.otherLine)}</strong></div>`:''}${Array.isArray(r.otherLines)&&r.otherLines.length?`<div class="row"><span>Other</span><strong>${esc(r.otherLines.join(', '))}</strong></div>`:''}${r.hv?`<div class="row"><span>Network</span><strong>${esc(r.hv)}</strong></div>`:''}${r.hvType?`<div class="row"><span>Type</span><strong>${esc(r.hvType)}</strong></div>`:''}${(r.from||r.to)?`<div class="row"><span>Between</span><strong>${esc([r.from,r.to].filter(Boolean).join(' → '))}</strong></div>`:''}${r.method?`<div class="row"><span>Method</span><strong>${esc(r.method)}</strong></div>`:''}<a href="${gm}" target="_blank" rel="noopener">Google Maps</a></div>`;
+      const d=this.hvDisplayFor(r)||{};
+      const hvRows=r.type==='TX'?'':`${r.hv?`<div class="row"><span>Network</span><strong>${esc(r.hv)}</strong></div>`:''}${d.displayKv?`<div class="row"><span>kV</span><strong>${esc(d.displayKv)}</strong></div>`:''}${d.phases?`<div class="row"><span>Phase</span><strong>${esc(d.phases)}</strong></div>`:''}${d.hvType?`<div class="row"><span>Type</span><strong>${esc(d.hvType)}</strong></div>`:''}`;
+      return `<div class="hvtx-popup"><b>${r.type==='TX'?'TX crossing':'HV crossing'}</b><div class="row"><span>Line</span><strong>${esc(r.line)}</strong></div>${r.otherLine?`<div class="row"><span>Other</span><strong>${esc(r.otherLine)}</strong></div>`:''}${Array.isArray(r.otherLines)&&r.otherLines.length?`<div class="row"><span>Other</span><strong>${esc(r.otherLines.join(', '))}</strong></div>`:''}${hvRows}${(r.from||r.to)?`<div class="row"><span>Between</span><strong>${esc([r.from,r.to].filter(Boolean).join(' → '))}</strong></div>`:''}${r.method?`<div class="row"><span>Method</span><strong>${esc(r.method)}</strong></div>`:''}<a href="${gm}" target="_blank" rel="noopener">Google Maps</a></div>`;
     },
     activeTypeList(){const out=[]; if(this.activeTypes.HV)out.push('HV'); if(this.activeTypes.TX)out.push('TX'); return out;},
     filterTypes(list=[],types){const set=new Set(normTypes(types||this.activeTypeList())); return (list||[]).filter(r=>isVisibleRecord(r)&&set.has(r.type));},
@@ -413,8 +484,8 @@
       const clean=this.dedupeList((list||[]).filter(isVisibleRecord));
       const groups=this.groupForDrawing(clean);
       for(const r of groups){
-        const m=L.marker([Number(r.lat),Number(r.lon)],{icon:this.iconFor(r),zIndexOffset:7000,riseOnHover:true,title:`${r.type==='TX'?'TX':'HV'} crossing ${r.line}`}).bindPopup(()=>this.popupHtml(r),{maxWidth:320,autoPan:true,keepInView:true});
-        m.on('popupopen',()=>{clearTimeout(m._hvtxCloseTimer);m._hvtxCloseTimer=setTimeout(()=>{try{m.closePopup();}catch(e){}},3000);});
+        const m=L.marker([Number(r.lat),Number(r.lon)],{icon:this.iconFor(r),zIndexOffset:7000,riseOnHover:true,title:`${r.type==='TX'?'TX':'HV'} crossing ${r.line}`}).bindPopup(()=>this.popupHtml(r),{maxWidth:320,autoPan:true,keepInView:true,closeOnClick:false});
+        m.on('popupopen',()=>{try{clearTimeout(m._hvtxCloseTimer);}catch(e){}});
         this.layer.addLayer(m);
       }
       this.activeCount=clean.length; this.activeDxCount=clean.filter(r=>r.type==='HV').length; this.activeTxCount=clean.filter(r=>r.type==='TX').length; this.activeMode=mode; this.activeLine=line||''; this.renderControls();
@@ -787,9 +858,8 @@
       return this.txCache;
     },
     async buildDynamicTxForLine(line){
-      // Disabled in v3.1.124. Public/shared transmission structure geometry can make dual-circuit or
-      // same-corridor sections look like line crossings. Use the curated bundled TX crossing points instead.
-      return [];
+      // v3.1.202: conservative fallback only. Curated TX crossing points still win, but this catches
+      // obvious direct TX span crossings missing from the sidecar.
       const wanted=fmtLine(line); if(!wanted)return [];
       const cache=await this.buildTxLineCache();
       const current=cache.lines.find(x=>x.lineKey===compact(wanted));
@@ -804,8 +874,8 @@
         for(const s2 of other.segs){
           if(!bboxOverlap(currentBox,s2.bbox,0.004))continue;
           for(const s1 of current.segs){
-            if(!bboxOverlap(s1.bbox,s2.bbox,0.003))continue;
-            const ad=angleDiff(s1,s2); if(ad<10)continue; // parallel/shared corridor, not a crossing indicator.
+            if(!bboxOverlap(s1.bbox,s2.bbox,0.008))continue;
+            const ad=angleDiff(s1,s2); if(ad<18)continue; // v3.1.205: catch angled TX crossings that are slightly offset; still rejects near-parallel/shared corridor false positives.
             const hit=segmentDirectCrossing(s1,s2); if(!hit)continue;
             const k=`${other.lineKey}|${Math.round(hit.lat*10000)}|${Math.round(hit.lon*10000)}`;
             if(seen.has(k))continue; seen.add(k);
@@ -964,18 +1034,75 @@
     },
     renderControls(){
       let el=document.getElementById('hvTxTogglePanel');
-      if(!el){el=document.createElement('div'); el.id='hvTxTogglePanel'; el.className='hvtx-toggle-panel hidden'; document.body.appendChild(el);}
+      if(!el){
+        el=document.createElement('div');
+        el.id='hvTxTogglePanel';
+        el.className='hvtx-toggle-panel hidden';
+        document.body.appendChild(el);
+      }
+      let alert=document.getElementById('hvTxAlertBtn');
+      if(!alert){
+        alert=document.createElement('button');
+        alert.id='hvTxAlertBtn';
+        alert.className='hvtx-alert-btn hidden';
+        alert.type='button';
+        alert.textContent='!';
+        alert.title='HV / TX crossings';
+        alert.setAttribute('aria-label','HV / TX crossings');
+        alert.addEventListener('click',(ev)=>{
+          try{ev.preventDefault();ev.stopPropagation();}catch(_e){}
+          const has=alert && !alert.classList.contains('hidden');
+          if(!has)return;
+          this.controlsOpen=!this.controlsOpen;
+          try{
+            window.LeanMapApp?.closePlusMenu?.();
+            window.LeanMapApp?.closeSearchQuickPanel?.();
+            window.LeanMapApp?.closeToggleQuickPanel?.();
+            window.LeanMapApp?.closeCircuitPicker?.();
+            window.LeanMapApp?.closeAssetSearch?.();
+            window.LeanMapApp?.closeBaseLayersPanel?.();
+            window.LeanMapApp?.closeAssetLayersPanel?.();
+            window.LeanMapApp?.closeToolsPanel?.();
+            window.LeanMapApp?.closeResetPanel?.();
+            window.LeanMapApp?.closeConductorsPanel?.();
+            document.getElementById('statusPanel')?.classList.add('hidden');
+          }catch(_e){}
+          this.renderControls();
+        });
+        document.body.appendChild(alert);
+      }
+
       const st=this.stats();
       const selectedLines=this.currentCircuitsForCounts();
       const selectedKey=selectedLines.map(compact).join('|');
-      if(!selectedKey){el.classList.add('hidden');return;}
+      const hideAll=()=>{
+        this.controlsOpen=false;
+        el.classList.add('hidden');
+        alert.classList.add('hidden');
+        alert.classList.remove('active');
+      };
+      if(!selectedKey){hideAll();return;}
       if(selectedKey&&selectedKey!==this.circuitCountLine&&!this.circuitCountPending){this.scheduleCircuitCountUpdate(selectedLines);}
-      if(!st.total&&!st.txSource){el.classList.add('hidden');return;}
-      el.classList.remove('hidden');
+      if(!st.total&&!st.txSource){hideAll();return;}
       const controlsReady=!!selectedKey;
       const pending=controlsReady&&this.circuitCountPending&&this.circuitCountLine===selectedKey;
       const detailMap=new Map((this.circuitCountDetails||[]).map(d=>[compact(d.line),d]));
       const lines=controlsReady?selectedLines:[];
+      let totalDetected=0;
+      for(const line of lines){
+        const d=detailMap.get(compact(line))||{line,dx:0,tx:0};
+        totalDetected += Number(d.dx||0)+Number(d.tx||0);
+      }
+      if(!totalDetected&&!pending){
+        totalDetected=Number(this.circuitDxCount||0)+Number(this.circuitTxCount||0);
+      }
+      if(!totalDetected&&!pending){hideAll();return;}
+
+      alert.classList.remove('hidden');
+      alert.classList.toggle('active',!!this.controlsOpen);
+      alert.title=pending?'Checking crossings…':`${Number(totalDetected||0).toLocaleString()} HV / TX crossing(s)`;
+      alert.setAttribute('aria-label',alert.title);
+
       const rowHtml=(line)=>{
         const d=detailMap.get(compact(line))||{line,dx:0,tx:0};
         const dxCount=pending?'…':Number(d.dx||0).toLocaleString();
@@ -986,6 +1113,7 @@
         return `<div class="hvtx-circuit-row" data-line="${esc(line)}"><button class="hvtx-toggle-btn ${dxActive?'active':''} ${!st.hv?'empty':''}" data-cross-type="HV" data-cross-line="${esc(line)}" type="button" title="HV crossings on ${short}"><span class="hvtx-type">HV</span><span class="hvtx-line">${short}</span><span class="hvtx-count">${dxCount}</span></button><button class="hvtx-toggle-btn ${txActive?'active':''} ${!st.txSource?'empty':''}" data-cross-type="TX" data-cross-line="${esc(line)}" type="button" title="Direct TX crossings on ${short}"><span class="hvtx-type">TX</span><span class="hvtx-line">${short}</span><span class="hvtx-count">${txCount}</span></button></div>`;
       };
       el.innerHTML=lines.length?lines.map(rowHtml).join(''):`<div class="hvtx-circuit-row"><button class="hvtx-toggle-btn empty" type="button"><span class="hvtx-type">HV</span><span class="hvtx-line">LOAD CIRCUIT</span><span class="hvtx-count">0</span></button><button class="hvtx-toggle-btn empty" type="button"><span class="hvtx-type">TX</span><span class="hvtx-line">LOAD CIRCUIT</span><span class="hvtx-count">0</span></button></div>`;
+      el.classList.toggle('hidden',!this.controlsOpen);
       el.querySelectorAll('[data-cross-type][data-cross-line]').forEach(btn=>{btn.addEventListener('click',()=>this.toggleCircuitType(btn.dataset.crossType,btn.dataset.crossLine));});
     },
     renderBadge(){this.renderControls();},
@@ -1028,7 +1156,7 @@
   const lineMatches=(a,b)=>{a=fmtLine(a); b=fmtLine(b); if(!a||!b)return false; const ca=compact(a), cb=compact(b); return a===b||ca===cb||ca.startsWith(cb)||cb.startsWith(ca);};
   const rawOf=r=>r?.raw&&typeof r.raw==='object'?r.raw:r||{};
   const hvText=(r)=>{const raw=rawOf(r); return [raw.hv_type,raw.HV_TYPE,raw.dx_type,raw.DX_TYPE,raw.type,raw.TYPE,raw.network_type,raw.NETWORK_TYPE,raw.asset_type,raw.category,raw.layer,raw.field_map_layer,raw.source_layer,raw.hv_network,raw.name,raw.title,raw.label,r?.hvType,r?.hv,r?.type,r?.title,r?.label,r?.sourceFile].map(v=>String(v||'')).join(' ').toUpperCase();};
-  const isOH=(r)=>{if(!r||r.type!=='HV'||!valid(r.lat,r.lon)||!r.line)return false; const t=hvText(r); if(/\bHVUG\b|UNDER\s*GROUND|UNDERGROUND|UNDERGROUND\s*CABLE|\bUG\s*(?:1PH|3PH|CABLE|HV|DIST|DISTRIBUTION)?\b/.test(t))return false; const raw=rawOf(r); const typeText=[raw.hv_type,raw.HV_TYPE,raw.dx_type,raw.DX_TYPE,raw.network_type,raw.NETWORK_TYPE,raw.type,raw.TYPE,r?.hvType].map(v=>String(v||'')).join(' ').trim(); return typeText?/\bHVOH\b|OVER\s*HEAD|OVERHEAD|\bOH\s*(?:1PH|3PH|HV|DIST|DISTRIBUTION)?\b/.test(t):true;};
+  const isOH=(r)=>{if(!r||r.type!=='HV'||!valid(r.lat,r.lon)||!r.line)return false; const t=hvText(r); if(/\bHVUG\b|UNDER\s*GROUND|UNDERGROUND|UNDERGROUND\s*CABLE|\bUG\s*(?:1PH|2PH|3PH|CABLE|HV|DIST|DISTRIBUTION)?\b/.test(t))return false; const raw=rawOf(r); const typeText=[raw.hv_type,raw.HV_TYPE,raw.dx_type,raw.DX_TYPE,raw.network_type,raw.NETWORK_TYPE,raw.type,raw.TYPE,r?.hvType].map(v=>String(v||'')).join(' ').trim(); return typeText?/\bHVOH\b|OVER\s*HEAD|OVERHEAD|\bOH\s*(?:1PH|2PH|3PH|HV|DIST|DISTRIBUTION)?\b/.test(t):true;};
   const crossKey=r=>{if(!r)return ''; const lat=n(r.lat),lon=n(r.lon); return [compact(fmtLine(r.line)),r.type||'',(r.otherLines||[]).map(x=>compact(fmtLine(x))).sort().join('/'),String(r.from||''),String(r.to||''),String(r.hv||''),String(r.hvType||''),Number.isFinite(lat)?lat.toFixed(6):'',Number.isFinite(lon)?lon.toFixed(6):''].join('|');};
   const distKm=(a,b)=>{try{return SearchEngine?._distKm?.(a,b)||SearchEngine?.distanceKm?.(a,b)||0;}catch(e){const dy=(Number(a.lat)-Number(b.lat))*111; const dx=(Number(a.lon)-Number(b.lon))*111*Math.cos(((Number(a.lat)+Number(b.lat))/2)*Math.PI/180); return Math.sqrt(dx*dx+dy*dy);}};
   const pointToSegmentKm=(p,s)=>{
@@ -1180,7 +1308,7 @@
   const lineMatchesExact=(a,b)=>{a=fmtLine(a); b=fmtLine(b); return !!a&&!!b&&compact(a)===compact(b);};
   const rawOf=r=>r?.raw&&typeof r.raw==='object'?r.raw:r||{};
   const hvText=r=>{const raw=rawOf(r); return [raw.hv_type,raw.HV_TYPE,raw.dx_type,raw.DX_TYPE,raw.type,raw.TYPE,raw.network_type,raw.NETWORK_TYPE,raw.asset_type,raw.category,raw.layer,raw.field_map_layer,raw.source_layer,raw.hv_network,raw.name,raw.title,raw.label,r?.hvType,r?.hv,r?.type,r?.title,r?.label,r?.sourceFile].map(v=>String(v||'')).join(' ').toUpperCase();};
-  const isOH=r=>{if(!r||r.type!=='HV'||!valid(r.lat,r.lon)||!r.line)return false; const t=hvText(r); if(/\bHVUG\b|UNDER\s*GROUND|UNDERGROUND|UNDERGROUND\s*CABLE|\bUG\s*(?:1PH|3PH|CABLE|HV|DIST|DISTRIBUTION)?\b/.test(t))return false; const raw=rawOf(r); const typeText=[raw.hv_type,raw.HV_TYPE,raw.dx_type,raw.DX_TYPE,raw.network_type,raw.NETWORK_TYPE,raw.type,raw.TYPE,r?.hvType].map(v=>String(v||'')).join(' ').trim(); return typeText?/\bHVOH\b|OVER\s*HEAD|OVERHEAD|\bOH\s*(?:1PH|3PH|HV|DIST|DISTRIBUTION)?\b/.test(t):true;};
+  const isOH=r=>{if(!r||r.type!=='HV'||!valid(r.lat,r.lon)||!r.line)return false; const t=hvText(r); if(/\bHVUG\b|UNDER\s*GROUND|UNDERGROUND|UNDERGROUND\s*CABLE|\bUG\s*(?:1PH|2PH|3PH|CABLE|HV|DIST|DISTRIBUTION)?\b/.test(t))return false; const raw=rawOf(r); const typeText=[raw.hv_type,raw.HV_TYPE,raw.dx_type,raw.DX_TYPE,raw.network_type,raw.NETWORK_TYPE,raw.type,raw.TYPE,r?.hvType].map(v=>String(v||'')).join(' ').trim(); return typeText?/\bHVOH\b|OVER\s*HEAD|OVERHEAD|\bOH\s*(?:1PH|2PH|3PH|HV|DIST|DISTRIBUTION)?\b/.test(t):true;};
   const addUnique=(arr,seen,v)=>{const f=fmtLine(v), k=compact(f); if(f&&k&&!seen.has(k)){seen.add(k); arr.push(f);}};
   const recordLineKeys=()=>new Set((LAYER.records||[]).filter(r=>r&&(r.type==='TX'||isOH(r))).map(r=>compact(fmtLine(r.line))).filter(Boolean));
   function strictAliases(line){
@@ -1214,4 +1342,616 @@
     return this.dedupeList?this.dedupeList(out):out;
   };
   try{Diagnostics?.log?.('HV/TX strict circuit matching','v3.1.126 exact-only for normal circuits; rotate-safe marker icons');}catch(e){}
+})();
+
+/* myMap v3.1.204: fix HV crossing voltage labels.
+   Display 22 kV network separately from 12.7 kV phase-earth on 1Ph crossings. */
+(function(){
+  const HC=window.HVCrossings;
+  if(!HC||HC.__v203VoltageLabels)return; HC.__v203VoltageLabels=true;
+  const esc=s=>String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+  const clean=v=>String(v??'').trim();
+  const parse=(r)=>window.myMapHvDisplay?.parse?.({kv:r?.hvKv,phases:r?.hvPhases,type:r?.hvType,network:r?.hv,source:r?.method})||{networkKv:clean(r?.hvKv),phases:clean(r?.hvPhases),hvType:clean(r?.hvType),summary:[r?.hvKv,r?.hvPhases,r?.hvType].filter(Boolean).join(' · ')};
+  function rowsForRecord(r){
+    const d=parse(r);
+    let html='';
+    if(r.hv)html+=`<div class="row"><span>Network</span><strong>${esc(r.hv)}</strong></div>`;
+    if(d.networkKv)html+=`<div class="row"><span>Network voltage</span><strong>${esc(d.networkKv)}</strong></div>`;
+    if(d.phases)html+=`<div class="row"><span>Phase</span><strong>${esc(d.phases)}</strong></div>`;
+    if(d.phaseEarthLabel)html+=`<div class="row"><span>Phase-earth</span><strong>${esc(d.phaseEarthLabel)}</strong></div>`;
+    if(d.hvType)html+=`<div class="row"><span>Type</span><strong>${esc(d.hvType)}</strong></div>`;
+    return html;
+  }
+  HC.popupHtml=function(r){
+    const gm=`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(Number(r.lat).toFixed(7)+','+Number(r.lon).toFixed(7))}`;
+    const recs=Array.isArray(r._groupRecords)&&r._groupRecords.length?r._groupRecords:[r];
+    if(recs.length>1){
+      const rows=recs.slice(0,12).map((x,i)=>{const d=parse(x); const bits=[x.hv||x.otherLines?.join(', ')||x.line,d.networkKv,d.phases,d.phaseEarthLabel,d.hvType].filter(Boolean).join(' · '); return `<div class="row"><span>${i+1}</span><strong>${esc(bits)}</strong></div>`;}).join('');
+      const more=recs.length>12?`<div class="row"><span>More</span><strong>${recs.length-12} more at this spot</strong></div>`:'';
+      return `<div class="hvtx-popup"><b>${r.type==='TX'?'TX crossings':'HV crossings'} × ${recs.length}</b><div class="row"><span>Line</span><strong>${esc(r.line)}</strong></div>${(r.from||r.to)?`<div class="row"><span>Between</span><strong>${esc([r.from,r.to].filter(Boolean).join(' → '))}</strong></div>`:''}${rows}${more}<a href="${gm}" target="_blank" rel="noopener">Google Maps</a></div>`;
+    }
+    return `<div class="hvtx-popup"><b>${r.type==='TX'?'TX crossing':'HV crossing'}</b><div class="row"><span>Line</span><strong>${esc(r.line)}</strong></div>${r.otherLine?`<div class="row"><span>Other</span><strong>${esc(r.otherLine)}</strong></div>`:''}${Array.isArray(r.otherLines)&&r.otherLines.length?`<div class="row"><span>Other</span><strong>${esc(r.otherLines.join(', '))}</strong></div>`:''}${rowsForRecord(r)}${(r.from||r.to)?`<div class="row"><span>Between</span><strong>${esc([r.from,r.to].filter(Boolean).join(' → '))}</strong></div>`:''}${r.method?`<div class="row"><span>Method</span><strong>${esc(r.method)}</strong></div>`:''}<a href="${gm}" target="_blank" rel="noopener">Google Maps</a></div>`;
+  };
+})();
+
+
+/* myMap v3.1.205: final HV crossing popup display + stronger TX fallback.
+   Keeps Phase row, supports 1Ph/2Ph/3Ph, shows 1Ph as 12.7 kV, cleans long decimals, and uses raw sidecar fields for phase/type. */
+(function(){
+  const HC=window.HVCrossings;
+  if(!HC||HC.__v205VoltageTxFix)return; HC.__v205VoltageTxFix=true;
+  const esc=s=>String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+  const clean=v=>String(v??'').trim();
+  const rawOf=r=>r&&r.raw&&typeof r.raw==='object'?r.raw:{};
+  const pick=(raw,names)=>{ for(const name of names){ for(const [k,v] of Object.entries(raw||{})){ if(String(k).toUpperCase()===String(name).toUpperCase()&&clean(v))return clean(v); } } return ''; };
+  function parseRecord(r){
+    const raw=rawOf(r);
+    const kv=[r?.hvKv,pick(raw,['hv_kv','HV_KV','nearby_hv_kv','kv','KV','voltage','VOLTAGE'])].filter(Boolean).join(' ');
+    const phases=[r?.hvPhases,pick(raw,['hv_phases','HV_PHASES','phases','PHASES','phase','PHASE','nearby_hv_phases'])].filter(Boolean).join(' ');
+    const type=[r?.hvType,pick(raw,['hv_type','HV_TYPE','dx_type','DX_TYPE','type','TYPE','network_type','NETWORK_TYPE','kv','KV'])].filter(Boolean).join(' ');
+    return window.myMapHvDisplay?.parse?.({kv,phases,type,network:r?.hv||'',source:r?.method||''})||{displayKv:clean(r?.hvKv),phases:clean(r?.hvPhases),hvType:clean(r?.hvType),summary:[r?.hvKv,r?.hvPhases,r?.hvType].filter(Boolean).join(' · ')};
+  }
+  function rowsForRecord(r){
+    const d=parseRecord(r);
+    let html='';
+    if(r.hv)html+=`<div class="row"><span>Network</span><strong>${esc(r.hv)}</strong></div>`;
+    if(d.displayKv)html+=`<div class="row"><span>kV</span><strong>${esc(d.displayKv)}</strong></div>`;
+    if(d.phases)html+=`<div class="row"><span>Phase</span><strong>${esc(d.phases)}</strong></div>`;
+    if(d.hvType)html+=`<div class="row"><span>Type</span><strong>${esc(d.hvType)}</strong></div>`;
+    return html;
+  }
+  HC.popupHtml=function(r){
+    const gm=`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(Number(r.lat).toFixed(7)+','+Number(r.lon).toFixed(7))}`;
+    const recs=Array.isArray(r._groupRecords)&&r._groupRecords.length?r._groupRecords:[r];
+    if(recs.length>1){
+      const rows=recs.slice(0,12).map((x,i)=>{const d=parseRecord(x); const bits=[x.hv||x.otherLines?.join(', ')||x.line,d.displayKv,d.phases,d.hvType].filter(Boolean).join(' · '); return `<div class="row"><span>${i+1}</span><strong>${esc(bits)}</strong></div>`;}).join('');
+      const more=recs.length>12?`<div class="row"><span>More</span><strong>${recs.length-12} more at this spot</strong></div>`:'';
+      return `<div class="hvtx-popup"><b>${r.type==='TX'?'TX crossings':'HV crossings'} × ${recs.length}</b><div class="row"><span>Line</span><strong>${esc(r.line)}</strong></div>${(r.from||r.to)?`<div class="row"><span>Between</span><strong>${esc([r.from,r.to].filter(Boolean).join(' → '))}</strong></div>`:''}${rows}${more}<a href="${gm}" target="_blank" rel="noopener">Google Maps</a></div>`;
+    }
+    return `<div class="hvtx-popup"><b>${r.type==='TX'?'TX crossing':'HV crossing'}</b><div class="row"><span>Line</span><strong>${esc(r.line)}</strong></div>${r.otherLine?`<div class="row"><span>Other</span><strong>${esc(r.otherLine)}</strong></div>`:''}${Array.isArray(r.otherLines)&&r.otherLines.length?`<div class="row"><span>Other</span><strong>${esc(r.otherLines.join(', '))}</strong></div>`:''}${rowsForRecord(r)}${(r.from||r.to)?`<div class="row"><span>Between</span><strong>${esc([r.from,r.to].filter(Boolean).join(' → '))}</strong></div>`:''}${r.method?`<div class="row"><span>Method</span><strong>${esc(r.method)}</strong></div>`:''}<a href="${gm}" target="_blank" rel="noopener">Google Maps</a></div>`;
+  };
+})();
+
+/* myMap v3.1.208: stronger phase/kV display and safer TX crossing fallback.
+   - Phase row retained for 1Ph/2Ph/3Ph by reading title/raw/normalised fields.
+   - 1Ph kV displays phase-earth when source only carries network kV.
+   - Dynamic TX crossings include endpoint/near-span crossings away from substations.
+   - TX markers inside substations/terminals are suppressed. */
+(function(){
+  const HC=window.HVCrossings;
+  if(!HC||HC.__v207PhaseTxSubstationFix)return; HC.__v207PhaseTxSubstationFix=true;
+  const esc=s=>String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+  const clean=v=>String(v??'').trim();
+  const compact=s=>String(s||'').toUpperCase().replace(/[^A-Z0-9]/g,'');
+  const fmtLine=s=>String(s||'').trim().replace(/\s+/g,' ').toUpperCase();
+  const num=v=>{const x=Number(v);return Number.isFinite(x)?x:null;};
+  const valid=(lat,lon)=>Number.isFinite(Number(lat))&&Number.isFinite(Number(lon))&&Math.abs(Number(lat))<=90&&Math.abs(Number(lon))<=180;
+  function distKm(a,b){
+    const lat1=Number(a.lat), lon1=Number(a.lon), lat2=Number(b.lat), lon2=Number(b.lon);
+    const dy=(lat1-lat2)*110.574;
+    const dx=(lon1-lon2)*111.320*Math.max(.18,Math.cos(((lat1+lat2)/2)*Math.PI/180));
+    return Math.hypot(dx,dy);
+  }
+  function rawOf(r){return r&&r.raw&&typeof r.raw==='object'?r.raw:{};}
+  function allText(r){
+    const raw=rawOf(r);
+    const vals=[r?.hvKv,r?.kv,r?.hvPhases,r?.phases,r?.hvType,r?.type,r?.title,r?.name,r?.label,r?.hv,
+      raw.hv_kv,raw.HV_KV,raw.kv,raw.KV,raw.voltage,raw.VOLTAGE,raw.hv_phases,raw.HV_PHASES,raw.phases,raw.PHASES,raw.phase,raw.PHASE,
+      raw.hv_type,raw.HV_TYPE,raw.dx_type,raw.DX_TYPE,raw.network_type,raw.NETWORK_TYPE,raw.type,raw.TYPE,raw.title,raw.TITLE,raw.name,raw.NAME,raw.label,raw.LABEL,
+      raw.popup_kv_phases,raw.POPUP_KV_PHASES,raw.hv_kv_display,raw.HV_KV_DISPLAY,raw.hv_network,raw.HV_NETWORK];
+    return vals.filter(v=>v!==undefined&&v!==null&&String(v).trim()).map(String).join(' · ');
+  }
+  function phaseFromText(t){
+    const m=String(t||'').match(/\b([123])\s*(?:PH|PHASE|PHASES)\b/i);
+    return m?`${m[1]}Ph`:'';
+  }
+  function typeFromText(t){
+    t=String(t||'');
+    if(/\bHVUG\b|UNDER\s*GROUND|UNDERGROUND|\bUG\b/i.test(t))return 'HVUG';
+    if(/\bHVOH\b|OVER\s*HEAD|OVERHEAD|\bOH\b/i.test(t))return 'HVOH';
+    return '';
+  }
+  function numsFromText(t){
+    const out=[]; const re=/(\d+(?:\.\d+)?)(?:\s*kV)?/ig; let m;
+    while((m=re.exec(String(t||'')))){
+      const x=Number(m[1]);
+      if(Number.isFinite(x)&&x>=1&&x<500&&!out.some(y=>Math.abs(y-x)<0.02))out.push(x);
+    }
+    return out;
+  }
+  function kvText(x){
+    x=Number(x); if(!Number.isFinite(x)||x<=0)return '';
+    const rounded=Math.abs(x-Math.round(x))<.05?String(Math.round(x)):x.toFixed(1).replace(/\.0$/,'');
+    return `${rounded} kV`;
+  }
+  function deriveDisplayKv(kvNums,phase){
+    if(!kvNums.length)return '';
+    let x=kvNums[0];
+    // Prefer explicit phase-earth values already present in the data for single phase.
+    if(phase==='1Ph'){
+      const low=kvNums.find(v=>v>=3&&v<20);
+      if(low)return kvText(low);
+      // If only the network voltage is available, display phase-earth.
+      if(x>=20&&x<100)return kvText(x/Math.sqrt(3));
+    }
+    return kvText(x);
+  }
+  function hvDisplay(r){
+    const raw=rawOf(r);
+    const text=allText(r);
+    const phase=phaseFromText([r?.hvPhases,raw.hv_phases,raw.HV_PHASES,raw.phases,raw.PHASES,raw.phase,raw.PHASE,text].filter(Boolean).join(' '));
+    const hvType=typeFromText([r?.hvType,raw.hv_type,raw.HV_TYPE,raw.dx_type,raw.DX_TYPE,raw.network_type,raw.NETWORK_TYPE,text].filter(Boolean).join(' '));
+    // Order matters: raw kv/type often holds the useful 12.7/19.1 values, while title/network may hold 22/33.
+    const kvSource=[raw.kv,raw.KV,raw.hv_kv,raw.HV_KV,r?.hvKv,r?.kv,raw.hv_kv_display,raw.HV_KV_DISPLAY,raw.popup_kv_phases,raw.POPUP_KV_PHASES,text].filter(Boolean).join(' ');
+    const displayKv=deriveDisplayKv(numsFromText(kvSource),phase);
+    return {displayKv,phase,hvType};
+  }
+  function rowsForRecord(r){
+    const d=hvDisplay(r);
+    let html='';
+    if(r.hv)html+=`<div class="row"><span>Network</span><strong>${esc(r.hv)}</strong></div>`;
+    if(d.displayKv)html+=`<div class="row"><span>kV</span><strong>${esc(d.displayKv)}</strong></div>`;
+    if(d.phase)html+=`<div class="row"><span>Phase</span><strong>${esc(d.phase)}</strong></div>`;
+    if(d.hvType)html+=`<div class="row"><span>Type</span><strong>${esc(d.hvType)}</strong></div>`;
+    return html;
+  }
+  HC.popupHtml=function(r){
+    const gm=`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(Number(r.lat).toFixed(7)+','+Number(r.lon).toFixed(7))}`;
+    const recs=Array.isArray(r._groupRecords)&&r._groupRecords.length?r._groupRecords:[r];
+    if(recs.length>1){
+      const rows=recs.slice(0,12).map((x,i)=>{const d=hvDisplay(x); const bits=[x.hv||x.otherLines?.join(', ')||x.line,d.displayKv,d.phase,d.hvType].filter(Boolean).join(' · '); return `<div class="row"><span>${i+1}</span><strong>${esc(bits)}</strong></div>`;}).join('');
+      const more=recs.length>12?`<div class="row"><span>More</span><strong>${recs.length-12} more at this spot</strong></div>`:'';
+      return `<div class="hvtx-popup"><b>${r.type==='TX'?'TX crossings':'HV crossings'} × ${recs.length}</b><div class="row"><span>Line</span><strong>${esc(r.line)}</strong></div>${(r.from||r.to)?`<div class="row"><span>Between</span><strong>${esc([r.from,r.to].filter(Boolean).join(' → '))}</strong></div>`:''}${rows}${more}<a href="${gm}" target="_blank" rel="noopener">Google Maps</a></div>`;
+    }
+    return `<div class="hvtx-popup"><b>${r.type==='TX'?'TX crossing':'HV crossing'}</b><div class="row"><span>Line</span><strong>${esc(r.line)}</strong></div>${r.otherLine?`<div class="row"><span>Other</span><strong>${esc(r.otherLine)}</strong></div>`:''}${Array.isArray(r.otherLines)&&r.otherLines.length?`<div class="row"><span>Other</span><strong>${esc(r.otherLines.join(', '))}</strong></div>`:''}${rowsForRecord(r)}${(r.from||r.to)?`<div class="row"><span>Between</span><strong>${esc([r.from,r.to].filter(Boolean).join(' → '))}</strong></div>`:''}${r.method?`<div class="row"><span>Method</span><strong>${esc(r.method)}</strong></div>`:''}<a href="${gm}" target="_blank" rel="noopener">Google Maps</a></div>`;
+  };
+
+  function bboxOfSeg(s){return {minLat:Math.min(s.a.lat,s.b.lat),maxLat:Math.max(s.a.lat,s.b.lat),minLon:Math.min(s.a.lon,s.b.lon),maxLon:Math.max(s.a.lon,s.b.lon)};}
+  function bboxOverlap(a,b,pad=0){return !(a.maxLat+pad<b.minLat||a.minLat-pad>b.maxLat||a.maxLon+pad<b.minLon||a.minLon-pad>b.maxLon);}
+  function expandBBox(box,p){return {minLat:box.minLat-p,maxLat:box.maxLat+p,minLon:box.minLon-p,maxLon:box.maxLon+p};}
+  function angleDiff(s1,s2){
+    const a=Math.atan2(s1.b.lat-s1.a.lat,s1.b.lon-s1.a.lon)*180/Math.PI;
+    const b=Math.atan2(s2.b.lat-s2.a.lat,s2.b.lon-s2.a.lon)*180/Math.PI;
+    let d=Math.abs(a-b)%180; if(d>90)d=180-d; return d;
+  }
+  function pointToSegment(p,s){
+    const lat0=((Number(p.lat)||0)+(Number(s.a.lat)||0)+(Number(s.b.lat)||0))/3*Math.PI/180;
+    const kx=111.320*Math.max(.18,Math.cos(lat0)), ky=110.574;
+    const ax=Number(s.a.lon)*kx, ay=Number(s.a.lat)*ky, bx=Number(s.b.lon)*kx, by=Number(s.b.lat)*ky, px=Number(p.lon)*kx, py=Number(p.lat)*ky;
+    const vx=bx-ax, vy=by-ay, len2=vx*vx+vy*vy;
+    let t=0; if(Number.isFinite(len2)&&len2>1e-12)t=Math.max(0,Math.min(1,((px-ax)*vx+(py-ay)*vy)/len2));
+    const qx=ax+t*vx, qy=ay+t*vy;
+    const lon=qx/kx, lat=qy/ky;
+    return {km:Math.hypot(px-qx,py-qy),t,lat,lon};
+  }
+  function segIntersectionLoose(s1,s2){
+    const x1=s1.a.lon,y1=s1.a.lat,x2=s1.b.lon,y2=s1.b.lat,x3=s2.a.lon,y3=s2.a.lat,x4=s2.b.lon,y4=s2.b.lat;
+    const den=(x1-x2)*(y3-y4)-(y1-y2)*(x3-x4); if(Math.abs(den)<1e-12)return null;
+    const t=((x1-x3)*(y3-y4)-(y1-y3)*(x3-x4))/den;
+    const u=((x1-x3)*(y1-y2)-(y1-y3)*(x1-x2))/den;
+    if(t<-0.025||t>1.025||u<-0.025||u>1.025)return null;
+    const lon=x1+t*(x2-x1), lat=y1+t*(y2-y1);
+    return valid(lat,lon)?{lat,lon,t,u,kind:(t>.02&&t<.98&&u>.02&&u<.98)?'intersect':'near-end'}:null;
+  }
+  function segmentHit(s1,s2){
+    const x=segIntersectionLoose(s1,s2); if(x)return x;
+    const candidates=[];
+    for(const p of [s1.a,s1.b]){const q=pointToSegment(p,s2); candidates.push({lat:p.lat,lon:p.lon,km:q.km,kind:'endpoint-on-span'});}
+    for(const p of [s2.a,s2.b]){const q=pointToSegment(p,s1); candidates.push({lat:p.lat,lon:p.lon,km:q.km,kind:'span-on-endpoint'});}
+    candidates.sort((a,b)=>a.km-b.km);
+    const best=candidates[0];
+    if(best&&best.km<=0.045)return best;
+    return null;
+  }
+  function txRefPoints(){
+    if(HC.__v207RefPts)return HC.__v207RefPts;
+    const out=[]; const seen=new Set();
+    const maybe=(a)=>{
+      const k=String(a?.kind||'').toLowerCase();
+      const raw=a?.raw||{};
+      const txt=[k,a?.label,a?.substation,a?.terminal,raw.TYPE,raw.type,raw.SEARCH_FIELD,raw.SUBSTATION,raw.SUBSTATION_NAME,raw.TERMINAL,raw.TERMINAL_NAME,raw.STATION_NAME].join(' ').toUpperCase();
+      if(!/(SUBSTATION|SUBSTN|TERMINAL|SWITCHYARD|ZONE\s*SUB|\bSUB\b|\bTERM\b)/.test(txt)&&!['substation','terminal'].includes(k))return;
+      const lat=Number(a?.lat),lon=Number(a?.lon); if(!valid(lat,lon))return;
+      const id=`${lat.toFixed(6)},${lon.toFixed(6)}`; if(seen.has(id))return; seen.add(id); out.push({lat,lon});
+    };
+    try{(SearchEngine?.referencePoints||[]).forEach(maybe);}catch(_){ }
+    try{(App?.assets||[]).forEach(maybe);}catch(_){ }
+    HC.__v207RefPts=out; return out;
+  }
+  function nearSubstation(p){
+    for(const r of txRefPoints()){if(distKm(p,r)<=0.35)return true;}
+    return false;
+  }
+  function denseTerminal(p,cache){
+    try{
+      const lines=new Set(); let pts=0;
+      for(const l of cache?.lines||[]){
+        let near=false;
+        for(const pt of l.pts||[]){ if(distKm(p,pt)<=0.16){near=true;pts++;break;} }
+        if(near)lines.add(l.lineKey||compact(l.line));
+        if(lines.size>=4||pts>=6)return true;
+      }
+    }catch(_){ }
+    return false;
+  }
+  function skipTxPoint(p,cache){return nearSubstation(p)||denseTerminal(p,cache);}
+  const oldDraw=HC.draw;
+  HC.draw=function(list=[],mode='',line=''){
+    const cache=this.txCache||null;
+    const filtered=(list||[]).filter(r=>!(r?.type==='TX'&&skipTxPoint({lat:Number(r.lat),lon:Number(r.lon)},cache)));
+    return oldDraw?oldDraw.call(this,filtered,mode,line):0;
+  };
+  HC.buildDynamicTxForLine=async function(line){
+    const wanted=fmtLine(line); if(!wanted)return [];
+    const cache=await this.buildTxLineCache();
+    const current=(cache.lines||[]).find(x=>compact(x.line)===compact(wanted));
+    if(!current||!current.segs?.length)return [];
+    const currentBox=expandBBox(current.bbox,0.02);
+    const out=[]; const seen=new Set(); let checked=0;
+    for(const other of cache.lines||[]){
+      if(compact(other.line)===compact(current.line))continue;
+      if(!bboxOverlap(currentBox,other.bbox,0.006))continue;
+      for(const s1 of current.segs){
+        for(const s2 of other.segs){
+          if(!bboxOverlap(bboxOfSeg(s1),bboxOfSeg(s2),0.010))continue;
+          const ad=angleDiff(s1,s2); if(ad<12)continue;
+          const hit=segmentHit(s1,s2); if(!hit)continue;
+          const p={lat:Number(hit.lat),lon:Number(hit.lon)}; if(!valid(p.lat,p.lon))continue;
+          if(skipTxPoint(p,cache))continue;
+          const k=`${compact(other.line)}|${Math.round(p.lat*20000)}|${Math.round(p.lon*20000)}`;
+          if(seen.has(k))continue; seen.add(k);
+          let h=2166136261; const idBase=`${wanted}|${other.line}|${p.lat.toFixed(7)}|${p.lon.toFixed(7)}|${hit.kind}`; for(let i=0;i<idBase.length;i++){h^=idBase.charCodeAt(i);h=Math.imul(h,16777619);}
+          out.push({id:'txdynv207'+(h>>>0).toString(16),sourceFile:'dynamic-transmission-line-data-v207',line:wanted,lineKey:compact(wanted),otherLines:[other.line],type:'TX',lat:p.lat,lon:p.lon,from:[s1.from,s1.to].filter(Boolean).join(' ⇄ '),to:[s2.from,s2.to].filter(Boolean).join(' ⇄ '),hv:'',hvType:'',hvKv:'',hvPhases:'',method:'Direct TX crossing from loaded transmission geometry',title:`TX crossing · ${wanted} × ${other.line}`,raw:{crossing_type:'dynamic_tx_from_line_data_v207',transmission_line:wanted,other_line:other.line,match:hit.kind||'',nearest_km:hit.km||0}});
+          if(out.length>=220)return out;
+          break;
+        }
+        if(++checked%250===0)await new Promise(r=>setTimeout(r,0));
+      }
+    }
+    return out;
+  };
+  try{HC.txCache=null;HC.spatialMatchCache=null;}catch(_){ }
+})();
+
+/* myMap v3.1.208: real TX span crossing fallback + substation cluster suppression.
+   - Do not suppress real two-line crossings just because there are duplicate/private/public pole points nearby.
+   - Suppress dynamic TX clusters around substations/terminal yards.
+   - Fixes KOJ-MBR x KOJ-ALB/FRW style near-end/mid-span crossing misses. */
+(function(){
+  const HC=window.HVCrossings;
+  if(!HC||HC.__v208TxCrossingRealFix)return; HC.__v208TxCrossingRealFix=true;
+  const compact=s=>String(s||'').toUpperCase().replace(/[^A-Z0-9]/g,'');
+  const fmtLine=s=>String(s||'').trim().replace(/\s+/g,' ').toUpperCase();
+  const valid=(lat,lon)=>Number.isFinite(Number(lat))&&Number.isFinite(Number(lon))&&Math.abs(Number(lat))<=90&&Math.abs(Number(lon))<=180;
+  const distKm=(a,b)=>{const lat1=Number(a.lat),lon1=Number(a.lon),lat2=Number(b.lat),lon2=Number(b.lon);const dy=(lat1-lat2)*110.574;const dx=(lon1-lon2)*111.320*Math.max(.18,Math.cos(((lat1+lat2)/2)*Math.PI/180));return Math.hypot(dx,dy);};
+  const bboxOfSeg=s=>({minLat:Math.min(s.a.lat,s.b.lat),maxLat:Math.max(s.a.lat,s.b.lat),minLon:Math.min(s.a.lon,s.b.lon),maxLon:Math.max(s.a.lon,s.b.lon)});
+  const bboxOverlap=(a,b,p=0)=>!(a.maxLat+p<b.minLat||a.minLat-p>b.maxLat||a.maxLon+p<b.minLon||a.minLon-p>b.maxLon);
+  const expandBBox=(b,p)=>({minLat:b.minLat-p,maxLat:b.maxLat+p,minLon:b.minLon-p,maxLon:b.maxLon+p});
+  function angleDiff(s1,s2){const a=Math.atan2(s1.b.lat-s1.a.lat,s1.b.lon-s1.a.lon)*180/Math.PI; const b=Math.atan2(s2.b.lat-s2.a.lat,s2.b.lon-s2.a.lon)*180/Math.PI; let d=Math.abs(a-b)%180; if(d>90)d=180-d; return d;}
+  function pointToSegment(p,s){
+    const lat0=((Number(p.lat)||0)+(Number(s.a.lat)||0)+(Number(s.b.lat)||0))/3*Math.PI/180;
+    const kx=111.320*Math.max(.18,Math.cos(lat0)), ky=110.574;
+    const ax=Number(s.a.lon)*kx, ay=Number(s.a.lat)*ky, bx=Number(s.b.lon)*kx, by=Number(s.b.lat)*ky, px=Number(p.lon)*kx, py=Number(p.lat)*ky;
+    const vx=bx-ax, vy=by-ay, len2=vx*vx+vy*vy;
+    let t=0; if(Number.isFinite(len2)&&len2>1e-12)t=Math.max(0,Math.min(1,((px-ax)*vx+(py-ay)*vy)/len2));
+    const qx=ax+t*vx, qy=ay+t*vy; return {km:Math.hypot(px-qx,py-qy),t,lat:qy/ky,lon:qx/kx};
+  }
+  function looseIntersection(s1,s2){
+    const x1=s1.a.lon,y1=s1.a.lat,x2=s1.b.lon,y2=s1.b.lat,x3=s2.a.lon,y3=s2.a.lat,x4=s2.b.lon,y4=s2.b.lat;
+    const den=(x1-x2)*(y3-y4)-(y1-y2)*(x3-x4); if(Math.abs(den)<1e-12)return null;
+    const t=((x1-x3)*(y3-y4)-(y1-y3)*(x3-x4))/den;
+    const u=((x1-x3)*(y1-y2)-(y1-y3)*(x1-x2))/den;
+    // Allow just beyond pole endpoints so T-style and slightly offset imported structure points are caught.
+    if(t<-0.08||t>1.08||u<-0.08||u>1.08)return null;
+    const lon=x1+t*(x2-x1), lat=y1+t*(y2-y1); if(!valid(lat,lon))return null;
+    const p={lat,lon};
+    const d1=pointToSegment(p,s1).km, d2=pointToSegment(p,s2).km;
+    if(d1>0.09||d2>0.09)return null;
+    const nearEnd=(t<.06||t>.94||u<.06||u>.94);
+    return {lat,lon,t,u,km:Math.max(d1,d2),kind:nearEnd?'near-end-crossing':'span-crossing'};
+  }
+  function offsetEndpointHit(s1,s2){
+    const c=[];
+    for(const p of [s1.a,s1.b]){const q=pointToSegment(p,s2); c.push({lat:p.lat,lon:p.lon,km:q.km,t:0,u:q.t,kind:'endpoint-near-span'});}
+    for(const p of [s2.a,s2.b]){const q=pointToSegment(p,s1); c.push({lat:p.lat,lon:p.lon,km:q.km,t:q.t,u:0,kind:'span-near-endpoint'});}
+    c.sort((a,b)=>a.km-b.km); const best=c[0];
+    return best&&best.km<=0.055?best:null;
+  }
+  function segmentHit(s1,s2){return looseIntersection(s1,s2)||offsetEndpointHit(s1,s2);}
+  function refPoints(){
+    if(HC.__v208RefPts)return HC.__v208RefPts;
+    const out=[],seen=new Set();
+    const maybe=a=>{
+      const raw=a?.raw||{}; const kind=String(a?.kind||'').toLowerCase();
+      const txt=[kind,a?.label,a?.name,a?.title,a?.substation,a?.terminal,raw.TYPE,raw.type,raw.SEARCH_FIELD,raw.NAME,raw.name,raw.TITLE,raw.title,raw.SUBSTATION,raw.SUBSTATION_NAME,raw.TERMINAL,raw.TERMINAL_NAME,raw.STATION_NAME].join(' ').toUpperCase();
+      if(!/(SUBSTATION|SUBSTN|TERMINAL|SWITCHYARD|SWITCH\s*YARD|ZONE\s*SUB|DEPOT|\bSUB\b|\bTERM\b|\bTX\s*YARD\b)/.test(txt)&&!['substation','terminal'].includes(kind))return;
+      const lat=Number(a?.lat),lon=Number(a?.lon); if(!valid(lat,lon))return;
+      const id=lat.toFixed(5)+','+lon.toFixed(5); if(seen.has(id))return; seen.add(id); out.push({lat,lon});
+    };
+    try{(SearchEngine?.referencePoints||[]).forEach(maybe);}catch(_){ }
+    try{(App?.assets||[]).forEach(maybe);}catch(_){ }
+    HC.__v208RefPts=out; return out;
+  }
+  function nearNamedSubstation(p){for(const r of refPoints()){if(distKm(p,r)<=0.45)return true;} return false;}
+  function lineCrowd(p,cache){
+    const lines=new Set();
+    try{for(const l of cache?.lines||[]){for(const pt of l.pts||[]){if(distKm(p,pt)<=0.16){lines.add(l.lineKey||compact(l.line));break;}}}}
+    catch(_){ }
+    return lines.size;
+  }
+  function isDynamicTx(r){return r?.type==='TX'&&/dynamic/i.test(String(r?.sourceFile||r?.raw?.crossing_type||r?.method||''));}
+  function suppressDynamicClusters(list,cache){
+    const arr=(list||[]).slice(); const remove=new Set();
+    for(let i=0;i<arr.length;i++){
+      const a=arr[i]; if(!isDynamicTx(a))continue;
+      const p={lat:Number(a.lat),lon:Number(a.lon)}; if(!valid(p.lat,p.lon)){remove.add(i);continue;}
+      if(nearNamedSubstation(p)){remove.add(i);continue;}
+      const crowd=lineCrowd(p,cache);
+      const near=[];
+      for(let j=0;j<arr.length;j++){const b=arr[j]; if(!isDynamicTx(b))continue; const q={lat:Number(b.lat),lon:Number(b.lon)}; if(valid(q.lat,q.lon)&&distKm(p,q)<=0.22)near.push(j);}
+      // Terminal/switchyard yard: several dynamic TX points in a tight cluster AND several distinct lines nearby.
+      // Do not use duplicate point count alone; duplicated private/public poles caused real crossings to be suppressed before.
+      if(near.length>=4&&crowd>=3){for(const j of near)remove.add(j);}
+    }
+    return arr.filter((_,i)=>!remove.has(i));
+  }
+  const oldDraw=HC.draw;
+  HC.draw=function(list=[],mode='',line=''){
+    let cleaned=list||[];
+    try{cleaned=suppressDynamicClusters(cleaned,this.txCache||null);}catch(_){ }
+    return oldDraw?oldDraw.call(this,cleaned,mode,line):0;
+  };
+  HC.buildDynamicTxForLine=async function(line){
+    const wanted=fmtLine(line); if(!wanted)return [];
+    const cache=await this.buildTxLineCache();
+    const current=(cache.lines||[]).find(x=>compact(x.line)===compact(wanted));
+    if(!current||!current.segs?.length)return [];
+    const currentBox=expandBBox(current.bbox,0.025);
+    const out=[]; const seen=new Set(); let tick=0;
+    for(const other of cache.lines||[]){
+      if(compact(other.line)===compact(current.line))continue;
+      if(!bboxOverlap(currentBox,other.bbox,0.012))continue;
+      for(const s1 of current.segs){
+        const b1=bboxOfSeg(s1);
+        for(const s2 of other.segs){
+          if(!bboxOverlap(b1,bboxOfSeg(s2),0.014))continue;
+          const ad=angleDiff(s1,s2); if(ad<8)continue;
+          const hit=segmentHit(s1,s2); if(!hit)continue;
+          const p={lat:Number(hit.lat),lon:Number(hit.lon)}; if(!valid(p.lat,p.lon))continue;
+          if(nearNamedSubstation(p))continue;
+          // Allow real two-line crossings even with duplicate poles; only skip dense yards with 4+ lines.
+          if(lineCrowd(p,cache)>=4)continue;
+          const key=[compact(other.line),Math.round(p.lat*40000),Math.round(p.lon*40000)].join('|');
+          if(seen.has(key))continue; seen.add(key);
+          let h=2166136261; const idBase=`${wanted}|${other.line}|${p.lat.toFixed(7)}|${p.lon.toFixed(7)}|${hit.kind}`; for(let i=0;i<idBase.length;i++){h^=idBase.charCodeAt(i);h=Math.imul(h,16777619);}
+          out.push({id:'txdynv208'+(h>>>0).toString(16),sourceFile:'dynamic-transmission-line-data-v208',line:wanted,lineKey:compact(wanted),otherLines:[other.line],type:'TX',lat:p.lat,lon:p.lon,from:[s1.from,s1.to].filter(Boolean).join(' ⇄ '),to:[s2.from,s2.to].filter(Boolean).join(' ⇄ '),hv:'',hvType:'',hvKv:'',hvPhases:'',method:'Direct TX crossing from loaded transmission geometry',title:`TX crossing · ${wanted} × ${other.line}`,raw:{crossing_type:'dynamic_tx_from_line_data_v208',transmission_line:wanted,other_line:other.line,match:hit.kind||'',nearest_km:hit.km||0}});
+          break;
+        }
+        if(++tick%250===0)await new Promise(r=>setTimeout(r,0));
+        if(out.length>=240)break;
+      }
+      if(out.length>=240)break;
+    }
+    return suppressDynamicClusters(out,cache);
+  };
+  try{HC.txCache=null;HC.spatialMatchCache=null;HC.__v207RefPts=null;HC.__v208RefPts=null;}catch(_){ }
+})();
+
+
+/* myMap v3.1.209: verified TX crossing data fix.
+   - Keep real TX crossings between lines that share an endpoint (KOJ-MBR x KOJ-ALB/FRW).
+   - Suppress substation/terminal TX clusters by cluster/early-structure logic.
+   - Add a verified fallback point for KOJ-MBR 81 x KOJ-ALB/FRW 81 if an old imported sidecar filtered it out. */
+(function(){
+  const HC=window.HVCrossings;
+  if(!HC||HC.__v209TxVerifiedFix)return; HC.__v209TxVerifiedFix=true;
+  const clean=v=>String(v??'').trim();
+  const compact=s=>clean(s).toUpperCase().replace(/[^A-Z0-9]+/g,'');
+  const fmtLine=v=>{
+    let s=clean(v).replace(/[–—]/g,'-').replace(/\s+/g,' ').toUpperCase();
+    const m=s.match(/^([A-Z]{1,5}\s*-\s*[A-Z]{1,5}(?:\s*\/\s*[A-Z]{1,5})*\s+(?:71|72|81|82|91|92|X1|X2))\b/i);
+    if(m)s=m[1];
+    try{s=SearchEngine?.formatCircuitName?.(s)||s;}catch(_){ }
+    return s.replace(/\s+/g,' ').trim().toUpperCase();
+  };
+  const valid=(lat,lon)=>Number.isFinite(Number(lat))&&Number.isFinite(Number(lon))&&Math.abs(Number(lat))<=90&&Math.abs(Number(lon))<=180;
+  const distKm=(a,b)=>{const lat1=Number(a.lat),lon1=Number(a.lon),lat2=Number(b.lat),lon2=Number(b.lon); const dy=(lat1-lat2)*110.574; const dx=(lon1-lon2)*111.320*Math.max(.18,Math.cos(((lat1+lat2)/2)*Math.PI/180)); return Math.hypot(dx,dy);};
+  const endpointCodes=line=>{
+    try{const c=SearchEngine?.lineEndpointCodes?.(line)||[]; if(Array.isArray(c)&&c.length)return c.map(compact).filter(Boolean);}catch(_){ }
+    const src=fmtLine(line).replace(/\b(?:71|72|81|82|91|92|X1|X2)\b.*$/i,'');
+    const out=[], add=x=>{x=compact(x); if(x&&/[A-Z]/.test(x)&&x.length<=8&&!out.includes(x))out.push(x);};
+    const m=src.match(/^([A-Z0-9]{1,8})\s*-\s*([A-Z0-9]{1,8}(?:\s*\/\s*[A-Z0-9]{1,8})*)/i);
+    if(m){add(m[1]); clean(m[2]).split('/').forEach(add);} else src.split(/[-\/]+/).forEach(add);
+    return out;
+  };
+  function linesForTx(r){
+    const raw=r?.raw||{}; const vals=[r?.line, ...(Array.isArray(r?.otherLines)?r.otherLines:[]), raw.transmission_line, raw.transmission_line_2, raw.tx_line, raw.tx_line_2, raw.line_a, raw.line_b, raw.other_line];
+    const out=[], seen=new Set();
+    for(const v of vals){const f=fmtLine(v), k=compact(f); if(f&&k&&!seen.has(k)){seen.add(k); out.push(f);}}
+    return out;
+  }
+  function sharesEndpointTx(r){
+    const lines=linesForTx(r); if(lines.length<2)return false;
+    const base=new Set(endpointCodes(lines[0])); if(!base.size)return false;
+    for(let i=1;i<lines.length;i++)if(endpointCodes(lines[i]).some(c=>base.has(c)))return true;
+    return false;
+  }
+  function poleNums(text){
+    const out=[]; text=clean(text).toUpperCase();
+    // from/to fields usually contain plain structure numbers, e.g. 0001A ⇄ 0002.
+    for(const m of text.matchAll(/(?:^|[\s⇄>,-])0*(\d{1,5})([A-Z]?)(?=$|[\s⇄>,-])/g)){
+      const n=Number(m[1]); if(Number.isFinite(n)&&n!==71&&n!==72&&n!==81&&n!==82&&n!==91&&n!==92)out.push(n);
+    }
+    return out;
+  }
+  function earlyStructure(r){
+    const raw=r?.raw||{};
+    const text=[r?.from,r?.to,raw.from_label,raw.to_label,raw.from_pole_no,raw.to_pole_no,raw.nearest_tx_structure,raw.nearest_tx_structure_1,raw.nearest_tx_structure_2].map(clean).join(' ');
+    return poleNums(text).some(n=>n>=0&&n<=5);
+  }
+  function falseTxClusterFilter(list=[]){
+    const arr=(list||[]).slice(); const kill=new Set();
+    for(let i=0;i<arr.length;i++){
+      const r=arr[i]; if(!r||r.type!=='TX'||!valid(r.lat,r.lon))continue;
+      const p={lat:Number(r.lat),lon:Number(r.lon)};
+      const near=[];
+      for(let j=0;j<arr.length;j++){
+        const x=arr[j]; if(!x||x.type!=='TX'||!valid(x.lat,x.lon))continue;
+        if(distKm(p,{lat:Number(x.lat),lon:Number(x.lon)})<=0.23)near.push(j);
+      }
+      // Cluster at a substation/terminal yard: several TX markers close together, and at least one line pair shares an endpoint.
+      const endpointCluster=near.length>=3 && near.some(j=>sharesEndpointTx(arr[j])||earlyStructure(arr[j]));
+      // Dynamic terminal clutter often has early structures in the from/to span.
+      const earlyDynamic=/dynamic/i.test(clean(r.sourceFile||r?.raw?.crossing_type||r.method)) && earlyStructure(r);
+      if(endpointCluster||earlyDynamic){near.forEach(j=>kill.add(j));}
+    }
+    return arr.filter((_,i)=>!kill.has(i));
+  }
+  const VERIFIED_TX=[{
+    line:'KOJ-MBR 81', other:'KOJ-ALB/FRW 81', lat:-33.97462491, lon:117.20430446,
+    title:'TX crossing · KOJ-MBR 81 × KOJ-ALB/FRW 81', method:'Verified TX crossing from cleaned v209 sidecar/public pole geometry'
+  }];
+  function verifiedForLine(line){
+    const wanted=compact(fmtLine(line)); const out=[];
+    for(const v of VERIFIED_TX){
+      const a=fmtLine(v.line), b=fmtLine(v.other);
+      if(wanted!==compact(a)&&wanted!==compact(b))continue;
+      const main=wanted===compact(a)?a:b, other=wanted===compact(a)?b:a;
+      out.push({id:'txverified_koj_mbr_alb_frw_81',sourceFile:'verified-v209-tx-fallback',line:main,lineKey:compact(main),otherLines:[other],type:'TX',lat:v.lat,lon:v.lon,from:'KOJ-MBR 81-0067/0068',to:'KOJ-ALB/FRW 81-0134',hv:'',hvType:'',hvKv:'132 kV',hvPhases:'3Ph',method:v.method,title:`TX crossing · ${main} × ${other}`,raw:{crossing_type:'verified_tx_crossing_v209',transmission_line:main,transmission_line_2:other,kv:'132',phases:'3Ph'}});
+    }
+    return out;
+  }
+  const oldMatches=HC.matchesForLine;
+  HC.matchesForLine=function(line){
+    let out=oldMatches?oldMatches.call(this,line):[];
+    out=out.concat(verifiedForLine(line));
+    out=falseTxClusterFilter(out);
+    return this.dedupeList?this.dedupeList(out):out;
+  };
+  const oldDraw=HC.draw;
+  HC.draw=function(list=[],mode='',line=''){
+    const cleaned=falseTxClusterFilter(list||[]);
+    return oldDraw?oldDraw.call(this,cleaned,mode,line):0;
+  };
+  const oldCounts=HC.computeCircuitCounts;
+  HC.computeCircuitCounts=async function(line){
+    const res=oldCounts?await oldCounts.call(this,line):null;
+    try{
+      const lines=Array.isArray(line)?line:(line?[line]:[]);
+      for(const l of lines){
+        if(verifiedForLine(l).length){
+          res.tx=Math.max(Number(res.tx||0),1);
+          const d=(res.details||[]).find(x=>compact(x.line)===compact(fmtLine(l))); if(d)d.tx=Math.max(Number(d.tx||0),1);
+        }
+      }
+    }catch(_){ }
+    return res;
+  };
+  try{HC.txCache=null;HC.spatialMatchCache=null;}catch(_){ }
+})();
+
+/* myMap v3.1.211: disable dynamic TX fallback.
+   The dynamic loaded-line detector was creating repeated TX markers along spans and around
+   terminal/substation areas. TX markers now come from the curated crossing sidecar only.
+   Use the cleaned v210 crossing file, which includes the verified KOJ-ALB/FRW 81 × KOJ-MBR 81 crossing. */
+(function(){
+  const LAYER=window.HVTXCrossingLayer;
+  if(!LAYER||LAYER.__v210NoDynamicTx)return;
+  LAYER.__v210NoDynamicTx=true;
+  LAYER.buildDynamicTxForLine=async function(){return [];};
+  LAYER.buildDynamicTxInView=async function(){return [];};
+  const oldToggle=LAYER.toggleTypeForLine;
+  if(oldToggle){
+    LAYER.toggleTypeForLine=async function(type,line,opts={}){
+      return oldToggle.call(this,type,line,Object.assign({},opts,{noDynamicTx:true}));
+    };
+  }
+})();
+
+/* myMap v3.1.211: actually disable dynamic TX fallback and strip stale dynamic/verified fallback markers.
+   v210 targeted the wrong global name (HVTXCrossingLayer). The live object is HVCrossingsLayer / HVCrossings.
+   This keeps only imported/curated sidecar TX records and removes generated dynamic TX rows. */
+(function(){
+  const HC=window.HVCrossingsLayer||window.HVCrossings;
+  if(!HC||HC.__v211CuratedTxOnlyReally)return; HC.__v211CuratedTxOnlyReally=true;
+  const clean=s=>String(s??'').trim();
+  const compact=s=>clean(s).toUpperCase().replace(/[^A-Z0-9]+/g,'');
+  const fmtLine=v=>{let s=clean(v).replace(/[–—]/g,'-').replace(/\s+/g,' ').toUpperCase();try{s=SearchEngine?.formatCircuitName?.(s)||s;}catch(_){ }return s.replace(/\s+/g,' ').trim().toUpperCase();};
+  const valid=(lat,lon)=>Number.isFinite(Number(lat))&&Number.isFinite(Number(lon))&&Math.abs(Number(lat))<=90&&Math.abs(Number(lon))<=180;
+  const distKm=(a,b)=>{const lat1=Number(a.lat),lon1=Number(a.lon),lat2=Number(b.lat),lon2=Number(b.lon);const dy=(lat1-lat2)*110.574;const dx=(lon1-lon2)*111.320*Math.max(.18,Math.cos(((lat1+lat2)/2)*Math.PI/180));return Math.hypot(dx,dy);};
+  function linePairKey(r){
+    const raw=r?.raw||{};
+    const vals=[r?.line, ...(Array.isArray(r?.otherLines)?r.otherLines:[]), r?.otherLine, raw.transmission_line, raw.transmission_line_2, raw.tx_line, raw.tx_line_2, raw.line_a, raw.line_b, raw.other_line];
+    const out=[]; const seen=new Set();
+    for(const v of vals){const f=fmtLine(v), k=compact(f); if(k&&!seen.has(k)){seen.add(k);out.push(f);}}
+    return out.sort().map(compact).join('×');
+  }
+  function isDynamicTx(r){
+    if(!r||r.type!=='TX')return false;
+    const raw=r.raw||{};
+    const t=[r.id,r.sourceFile,r.method,r.title,raw.crossing_type,raw.source_layer,raw.method,raw.detection_method].join(' ').toUpperCase();
+    return /DYNAMIC|LOADED TRANSMISSION|TXDYN|VERIFIED-V20[789]|VERIFIED_TX_CROSSING_V20[789]|FALLBACK/.test(t);
+  }
+  function isOldTerminalTxCluster(r){
+    if(!r||r.type!=='TX')return false;
+    const raw=r.raw||{};
+    const t=[r.line, ...(Array.isArray(r.otherLines)?r.otherLines:[]), r.from, r.to, raw.nearest_tx_structure_1, raw.nearest_tx_structure_2, raw.name, raw.title].join(' ').toUpperCase();
+    // Keep the real KOJ-MBR × KOJ-ALB/FRW record. Drop obvious station/yard clutter from generated history.
+    if(/KOJ-ALB\/FRW 81/.test(t)&&/KOJ-MBR 81/.test(t))return false;
+    if(/SUBSTATION|TERMINAL|SWITCHYARD|TX YARD/.test(t))return true;
+    return false;
+  }
+  function filterTx(list){
+    const arr=(list||[]).filter(r=>!(r?.type==='TX'&&(isDynamicTx(r)||isOldTerminalTxCluster(r))));
+    // De-dupe exact same TX sidecar record coming from multiple imported crossing files.
+    const out=[]; const seen=[];
+    for(const r of arr){
+      if(r?.type!=='TX'||!valid(r.lat,r.lon)){out.push(r);continue;}
+      const key=linePairKey(r); const p={lat:Number(r.lat),lon:Number(r.lon)};
+      let dup=false;
+      for(const s of seen){
+        if(s.key===key&&distKm(p,s.p)<=0.035){dup=true;break;}
+      }
+      if(dup)continue;
+      seen.push({key,p}); out.push(r);
+    }
+    return out;
+  }
+  HC.buildDynamicTxForLine=async function(){return [];};
+  HC.buildDynamicTxInView=async function(){return [];};
+  HC.hasTxGeometry=function(){return (this.records||[]).some(r=>r?.type==='TX');};
+  const oldMatches=HC.matchesForLine;
+  HC.matchesForLine=function(line){return filterTx(oldMatches?oldMatches.call(this,line):[]);};
+  const oldDraw=HC.draw;
+  HC.draw=function(list=[],mode='',line=''){return oldDraw?oldDraw.call(this,filterTx(list),mode,line):0;};
+  const oldShow=HC.showForCircuit;
+  if(oldShow){HC.showForCircuit=async function(line,opts={}){opts=Object.assign({},opts,{noDynamicTx:true}); const r=await oldShow.call(this,line,opts); try{this.draw(filterTx(this.layer?._layers?Object.values(this.layer._layers).map(x=>x.__record).filter(Boolean):[]));}catch(_){ } return r;};}
+  try{HC.txCache=null;HC.spatialMatchCache=null;}catch(_){ }
+})();
+
+
+/* myMap v3.1.230: production clean TX guard.
+   Keep dynamic TX generation disabled; use curated/imported crossing file only. */
+(function(){
+  const H=window.HvCrossingsLayer||window.HVCrossingsLayer||window.HvTxCrossingsLayer||window.HVCrossingLayer;
+  const C=window.HVCrossings||window.HvCrossings||H;
+  const targets=[H,C].filter(Boolean);
+  for(const t of targets){
+    try{
+      t.buildDynamicTxForLine=async function(){return [];};
+      t.buildDynamicTxInView=async function(){return [];};
+      const oldDraw=t.draw;
+      if(oldDraw&&!t.__v229DrawFilter){
+        t.__v229DrawFilter=true;
+        t.draw=function(list){
+          const cleaned=(list||[]).filter(r=>{
+            if(r?.type!=='TX')return true;
+            const raw=[r.sourceFile,r.method,r.id,r?.raw?.crossing_type,r?.raw?.method].join(' ').toUpperCase();
+            return !/(DYNAMIC|TXDYN|VERIFIED-V20[789]|FALLBACK)/.test(raw);
+          });
+          return oldDraw.call(this,cleaned);
+        };
+      }
+    }catch(_){ }
+  }
 })();
