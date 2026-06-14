@@ -1,7 +1,8 @@
-// myMap service worker · mymap-v3-1-129_pwa_real_install_fix
-// Simple shell controller: no heavy pre-cache, so Android install does not hang.
-const MYMAP_SW_VERSION = 'mymap-v3-1-129_pwa_real_install_fix';
-const OLD_CACHE_PATTERNS = [/^field-map-/i, /^fieldMap/i, /^myMap/i, /^mymap/i];
+// myMap service worker · mymap-v3-1-236_reset_ui_detail
+// Simple shell controller: no heavy install pre-cache. Shell files are cached only after they load successfully.
+const MYMAP_SW_VERSION = 'mymap-v3-1-236_reset_ui_detail';
+const SHELL_CACHE = 'app-shell-' + MYMAP_SW_VERSION;
+const OLD_CACHE_PATTERNS = [/^field-map-/i, /^fieldMap/i, /^myMap/i, /^mymap/i, /^app-shell-(?!mymap-v3-1-236_reset_ui_detail$)/i];
 
 self.addEventListener('install', event => {
   self.skipWaiting();
@@ -12,6 +13,7 @@ self.addEventListener('activate', event => {
     try {
       const keys = await caches.keys();
       await Promise.all(keys.map(key => {
+        if (key === SHELL_CACHE) return Promise.resolve(false);
         if (OLD_CACHE_PATTERNS.some(re => re.test(key))) return caches.delete(key);
         return Promise.resolve(false);
       }));
@@ -20,16 +22,46 @@ self.addEventListener('activate', event => {
   })());
 });
 
+function isShellRequest(url) {
+  if (url.origin !== location.origin) return false;
+  if (url.pathname.endsWith('/') || url.pathname.endsWith('/index.html')) return true;
+  return /\.(css|js|png|json|webmanifest)$/i.test(url.pathname);
+}
+
+async function cacheShellResponse(request, response) {
+  try {
+    if (!response || response.status !== 200 || response.type === 'opaque') return;
+    const cache = await caches.open(SHELL_CACHE);
+    await cache.put(request, response.clone());
+    const url = new URL(request.url);
+    if (url.origin === location.origin && (url.pathname.endsWith('/') || url.pathname.endsWith('/index.html'))) {
+      await cache.put(new Request(new URL('./index.html', self.registration.scope).toString()), response.clone());
+    }
+  } catch (e) {}
+}
+
 self.addEventListener('fetch', event => {
   if (event.request.method !== 'GET') return;
-  event.respondWith(fetch(event.request).catch(async () => {
+  let url;
+  try { url = new URL(event.request.url); } catch (e) { return; }
+
+  if (!isShellRequest(url)) return;
+
+  event.respondWith((async () => {
     try {
-      const url = new URL(event.request.url);
+      const live = await fetch(event.request);
+      cacheShellResponse(event.request, live);
+      return live;
+    } catch (e) {
+      const cache = await caches.open(SHELL_CACHE);
+      const cached = await cache.match(event.request, { ignoreSearch: true });
+      if (cached) return cached;
       if (url.origin === location.origin && (url.pathname.endsWith('/') || url.pathname.endsWith('/index.html'))) {
-        const cached = await caches.match('./index.html', {ignoreSearch:true});
-        if (cached) return cached;
+        const cachedIndex = await cache.match(new Request(new URL('./index.html', self.registration.scope).toString()), { ignoreSearch: true })
+          || await caches.match('./index.html', { ignoreSearch: true });
+        if (cachedIndex) return cachedIndex;
       }
-    } catch(e) {}
-    throw new Error('myMap offline and requested file is not cached');
-  }));
+      throw new Error('myMap offline and requested shell file is not cached');
+    }
+  })());
 });

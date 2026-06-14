@@ -6,29 +6,45 @@
   <meta name="theme-color" content="#1f3b25">
   <meta name="application-name" content="myMap">
   <title>myMap</title>
-  <link rel="manifest" href="manifest.json?v=mymap-v3-1-129_pwa_real_install_fix">
+  <link rel="manifest" href="manifest.json?v=mymap-v3-1-236_reset_ui_detail">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="myMap">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <link rel="icon" type="image/png" href="icons/favicon.png?v=mymap-v3-1-129_pwa_real_install_fix">
-  <link rel="apple-touch-icon" href="icons/icon-192.png?v=mymap-v3-1-129_pwa_real_install_fix">
+  <link rel="icon" type="image/png" href="icons/favicon.png?v=mymap-v3-1-236_reset_ui_detail">
+  <link rel="apple-touch-icon" href="icons/icon-192.png?v=mymap-v3-1-236_reset_ui_detail">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-  <link rel="stylesheet" href="css/lean-engine.css?v=mymap-v3-1-129_pwa_real_install_fix">
+  <link rel="stylesheet" href="css/lean-engine.css?v=mymap-v3-1-236_reset_ui_detail">
 </head>
 <body>
   <div id="map"></div>
 
-  <div class="lean-left-rail">
-    <div class="lean-top-row">
-      <button id="gpsFollow" class="lean-round-btn gps-control gps-free" type="button" title="GPS Free scroll — tap to change mode" aria-label="GPS Free scroll — tap to change mode"><span class="gps-arrow-icon" aria-hidden="true"><svg viewBox="0 0 24 24" role="img" focusable="false"><path d="M12 2 20.5 21 12 16.9 3.5 21 12 2Z"/></svg></span></button>
-      <button id="plusBtn" class="lean-round-btn" type="button" title="More map controls" aria-label="More map controls">+</button>
-      <button id="mapLayerBtn" class="lean-round-btn layer-control" type="button" title="Map layer: Street" aria-label="Change map layer"><span id="mapLayerLabel">MAP</span></button>
-    </div>
-    <div class="lean-search-col">
-      <button id="magnifyBtn" class="lean-round-btn" type="button" title="Circuits" aria-label="Circuits">⌕</button>
-      <button id="nearbyBtn" class="lean-round-btn nearby-control" type="button" title="Nearby assets" aria-label="Show nearby assets">Near</button>
-    </div>
+  <div class="lean-left-rail" aria-label="Map controls">
+    <button id="gpsFollow" class="lean-round-btn gps-control gps-free" type="button" title="GPS Free scroll — tap to change mode" aria-label="GPS Free scroll — tap to change mode">
+      <span class="gps-arrow-icon" aria-hidden="true"><svg viewBox="0 0 24 24" role="img" focusable="false"><path d="M12 2 20.5 21 12 16.9 3.5 21 12 2Z"/></svg></span>
+    </button>
+    <button id="magnifyBtn" class="lean-round-btn search-control" type="button" title="Search" aria-label="Search">
+      <svg viewBox="0 0 24 24" role="img" focusable="false" aria-hidden="true"><path d="M10.5 18a7.5 7.5 0 1 1 0-15 7.5 7.5 0 0 1 0 15Zm5.2-2.3 5.1 5.1"/></svg>
+    </button>
+    <button id="nearbyBtn" class="lean-round-btn radar-control toggle-control" type="button" title="Toggle" aria-label="Toggle">
+      <svg viewBox="0 0 24 24" role="img" focusable="false" aria-hidden="true" class="hex-grid-icon">
+        <polygon points="12 3.2 16.1 5.55 16.1 10.25 12 12.6 7.9 10.25 7.9 5.55"/>
+        <circle cx="12" cy="7.9" r="1.32"/>
+        <polygon points="7.35 10.65 11.45 13 11.45 17.7 7.35 20.05 3.25 17.7 3.25 13"/>
+        <circle cx="7.35" cy="15.35" r="1.32"/>
+        <polygon points="16.65 10.65 20.75 13 20.75 17.7 16.65 20.05 12.55 17.7 12.55 13"/>
+        <circle cx="16.65" cy="15.35" r="1.32"/>
+      </svg>
+    </button>
+    <button id="plusBtn" class="lean-round-btn settings-control" type="button" title="Settings" aria-label="Settings">
+      <svg viewBox="0 0 24 24" role="img" focusable="false" aria-hidden="true"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 13.5a7.7 7.7 0 0 0 .1-1.5 7.7 7.7 0 0 0-.1-1.5l2-1.5-2-3.5-2.4 1a7.6 7.6 0 0 0-2.6-1.5L14 2.4h-4l-.4 2.6A7.6 7.6 0 0 0 7 6.5l-2.4-1-2 3.5 2 1.5A7.7 7.7 0 0 0 4.5 12c0 .5 0 1 .1 1.5l-2 1.5 2 3.5 2.4-1a7.6 7.6 0 0 0 2.6 1.5l.4 2.6h4l.4-2.6a7.6 7.6 0 0 0 2.6-1.5l2.4 1 2-3.5-2-1.5Z"/></svg>
+    </button>
+  </div>
+
+  <div id="gpsMapStatus" class="gps-map-status gps-none" aria-live="polite" title="GPS signal / accuracy">
+    <svg class="gps-map-sat" viewBox="0 0 24 24" role="img" focusable="false" aria-hidden="true"><path d="M8.2 3.1 20.9 15.8l-3.1 3.1L5.1 6.2 8.2 3.1Z"/><path d="M4.2 11.1 12.9 19.8"/><path d="M11.1 4.2 19.8 12.9"/><path d="M3.2 20.8c2.5-2.5 6.6-2.5 9.1 0"/></svg>
+    <span class="gps-map-bars" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+    <b id="gpsMapAccuracy">—</b>
   </div>
 
   <section id="gpsPatrolPanel" class="gps-patrol-panel hidden" aria-live="polite">
@@ -39,44 +55,45 @@
         <button id="gpsPanelCloseBtn" type="button" aria-label="Hide GPS panel">×</button>
       </div>
     </div>
-    <div class="gps-mode-strip" role="group" aria-label="GPS movement profile">
-      <button type="button" data-gps-profile="walking">Walk</button>
-      <button type="button" data-gps-profile="driving">Drive</button>
-      <button type="button" data-gps-profile="helicopter">Heli</button>
+    <div class="gps-mode-strip gps-select-strip" aria-label="GPS movement profile">
+      <label class="gps-select-control" for="gpsProfileSelect"><span>Mode</span><select id="gpsProfileSelect" aria-label="GPS movement profile"><option value="walking">Walk</option><option value="driving">Drive</option><option value="helicopter">Heli</option></select></label>
     </div>
     <div class="gps-patrol-grid">
       <div><b id="gpsSpeedValue">—</b><span>speed</span></div>
       <div><b id="gpsAltitudeValue">—</b><span>altitude</span></div>
       <div><b id="gpsHeadingValue">—</b><span>heading</span></div>
-      <div><b id="gpsAccuracyValue">—</b><span>accuracy</span></div>
     </div>
     <div class="gps-nearest-card">
       <div class="gps-nearest-row-with-action"><span>Nearest</span><b id="gpsNearestValue">—</b><button id="gpsNearestPingBtn" class="gps-nearest-ping-btn" type="button" disabled>Ping</button></div>
       <div><span>Next</span><b id="gpsNextValue">—</b></div>
       <div><span>Circuit</span><b id="gpsCircuitValue">—</b></div>
     </div>
-    <div class="gps-panel-actions gps-panel-actions-three">
-      <button id="gpsLocateModeBtn" type="button">Locate</button>
-      <button id="gpsFollowModeBtn" type="button">Follow</button>
-      <button id="gpsTrackModeBtn" type="button">Tracking/Heli</button>
-    </div>
-    <div class="gps-rotate-row">
+    <div class="gps-action-toggle-row">
+      <label class="gps-select-control gps-action-select" for="gpsActionSelect"><span>Action</span><select id="gpsActionSelect" aria-label="GPS action"><option value="free">Locate</option><option value="follow">Follow</option><option value="track">Track</option></select></label>
       <button id="gpsRotateModeBtn" type="button" aria-pressed="false">Rotate OFF</button>
-    </div>
-    <div class="gps-breadcrumb-row">
-      <button id="gpsBreadcrumbBtn" type="button" aria-pressed="false">Breadcrumb OFF</button>
+      <button id="gpsBreadcrumbBtn" type="button" aria-pressed="false">Trail OFF</button>
     </div>
   </section>
 
   <div id="plusMenu" class="plus-menu hidden">
     <button id="clearMapDisplayBtn" class="primary main-clear-btn" type="button">Clear Map Display</button>
     <button id="toolsBtn" type="button">Tools</button>
-    <button id="conductorBtn" type="button">Conductors</button>
-    <button id="statusBtn" type="button">Data manager</button>
-    <button id="importBtn" type="button">Import files</button>
-    <button id="installAppBtn" class="install-app-btn" type="button">Install app</button>
-    <button id="resetBtn" class="main-reset-btn" type="button">Reset</button>
+    <button id="statusBtn" type="button">Data Manager</button>
+    <button id="resetBtn" class="main-reset-btn" type="button">Clear Cache / Reset</button>
   </div>
+
+  <section id="searchQuickPanel" class="plus-menu search-quick-panel hidden">
+    <button id="searchQuickAssetsBtn" type="button">Search Transmission</button>
+    <button id="searchQuickCircuitsBtn" type="button">Show Circuits</button>
+    <button id="searchQuickDistributionBtn" type="button">Search Distribution</button>
+    <button id="searchQuickAddressBtn" type="button">Search Address</button>
+  </section>
+
+  <section id="toggleQuickPanel" class="plus-menu toggle-quick-panel hidden">
+    <button id="toggleNearbyAssetsBtn" type="button">Assets Nearby</button>
+    <button id="toggleMapLayersBtn" type="button">Map Layers</button>
+    <button id="toggleMapFiltersBtn" type="button">Map Filters</button>
+  </section>
 
   <section id="circuitPicker" class="circuit-picker hidden">
     <header class="panel-head">
@@ -86,8 +103,7 @@
     <div class="panel-body">
       <div class="tiny-note">Alphabetical list. Seven rows visible. No keyboard.</div>
       <div id="circuitList" class="circuit-list"></div>
-      <div class="action-row"><button id="loadCircuitBtn" class="load-btn" type="button">OK / Load</button><button type="button" onclick="LeanMapApp.closeCircuitPicker()">Cancel</button></div>
-      <button id="assetSearchFromCircuitBtn" class="asset-search-under-btn" type="button">Asset search</button>
+      <div class="action-row"><button id="loadCircuitBtn" class="load-btn" type="button">OK / Load</button><button id="resetCircuitPickerBtn" type="button">Reset</button></div>
     </div>
   </section>
 
@@ -102,6 +118,18 @@
     </div>
   </section>
 
+
+  <section id="addressSearchPanel" class="search-panel address-search-panel hidden">
+    <header class="panel-head">
+      <div><b>Search Address</b><span>Western Australia only</span></div>
+      <button id="closeAddressSearchPanel" type="button">×</button>
+    </header>
+    <div class="panel-body">
+      <div class="search-line"><input id="addressSearchInput" autocomplete="off" placeholder="Street address / suburb WA"><button id="runAddressSearchBtn" class="load-btn" type="button">Search</button></div>
+      <div id="addressSearchResults" class="search-results"><div class="tiny-note">Search WA addresses only. Internet required.</div></div>
+    </div>
+  </section>
+
   <section id="statusPanel" class="status-panel data-manager-panel hidden">
     <header class="panel-head">
       <div><b>Data manager</b><span id="dataManagerSubtitle">Files · assets</span></div>
@@ -110,7 +138,10 @@
     <div class="panel-body data-manager-body">
       <div id="dataCategoryTabs" class="data-tabs">
         <button type="button" data-cat="summary" class="active">Summary</button>
+        <button type="button" data-cat="import">Import</button>
         <button type="button" data-cat="files">Files</button>
+        <button type="button" data-cat="local-save">Local</button>
+        <button type="button" data-cat="app">App</button>
       </div>
       <div id="statusBody" class="data-view"></div>
     </div>
@@ -121,7 +152,7 @@
 
   <section id="conductorsPanel" class="conductors-panel hidden">
     <header class="panel-head conductor-panel-head">
-      <div class="panel-title-block"><b>Conductors</b><span id="conductorsSubtitle">By circuit</span></div>
+      <div class="panel-title-block"><b>Conductor index</b><span id="conductorsSubtitle">By circuit</span></div>
       <div class="conductor-head-actions" aria-label="Conductor actions">
         <button id="importConductorHeaderBtn" class="title-action-btn title-import-btn" type="button" data-import-conductor-json="1">Import</button>
         <button id="conductorWeightHeaderBtn" class="title-action-btn title-weight-btn" type="button" data-cond-panel="weight">Weight test</button>
@@ -140,6 +171,18 @@
     <button id="conductorsScrollTopBtn" class="scroll-top-btn conductor-scroll-top-btn hidden" type="button" title="Scroll conductors to top" aria-label="Scroll conductors to top">↑</button>
   </section>
 
+  <section id="baseLayersPanel" class="base-layers-panel hidden">
+    <header class="panel-head">
+      <div><b>Map Layers</b><span id="baseLayersSubtitle">Current layer</span></div>
+      <button id="closeBaseLayersPanel" type="button">×</button>
+    </header>
+    <div id="baseLayersBody" class="panel-body base-layers-body">
+      <button type="button" class="base-layer-toggle" data-base-layer="street"><span>Normal</span></button>
+      <button type="button" class="base-layer-toggle" data-base-layer="satellite"><span>Satellite</span></button>
+      <button type="button" class="base-layer-toggle" data-base-layer="topo"><span>Topo</span></button>
+    </div>
+  </section>
+
   <section id="toolsPanel" class="tools-panel hidden">
     <header class="panel-head">
       <div><b>Tools</b><span>Map display tools</span></div>
@@ -150,9 +193,19 @@
     </div>
   </section>
 
+  <section id="assetLayersPanel" class="asset-layers-panel hidden">
+    <header class="panel-head">
+      <div><b>Filter</b><span id="assetLayersSubtitle">Asset visibility</span></div>
+      <button id="closeAssetLayersPanel" type="button">×</button>
+    </header>
+    <div class="panel-body asset-layers-body">
+      <div id="assetLayersBody" class="data-view"></div>
+    </div>
+  </section>
+
   <section id="resetPanel" class="reset-panel hidden">
     <header class="panel-head">
-      <div><b>Reset</b><span>Cache and app reset</span></div>
+      <div><b>Cache / Reset</b><span>Clear cache or full reset</span></div>
       <button id="closeResetPanel" type="button">×</button>
     </header>
     <div class="panel-body reset-body">
@@ -171,7 +224,7 @@
       <span id="queueStatus"></span>
       <div class="progress-bar"><div id="overlayProgressFill" class="progress-fill"></div></div>
       <span id="overlayProgressPct">0%</span>
-      <button id="cancelImportBtn" type="button" onclick="window.ImportEngine?.cancelImport?.();return false;">Cancel</button>
+      <button id="cancelImportBtn" type="button" onclick="window.ImportEngine?.cancelImport?.();return false;">Stop</button>
     </div>
   </div>
 
@@ -182,40 +235,43 @@
   </section>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="js/lean-app-core.js?v=mymap-v3-1-129_pwa_real_install_fix"></script>
-  <script src="js/diagnostics.js?v=mymap-v3-1-129_pwa_real_install_fix"></script>
-  <script src="js/lean-engine-stubs.js?v=mymap-v3-1-129_pwa_real_install_fix"></script>
-  <script src="js/storage-engine.js?v=mymap-v3-1-129_pwa_real_install_fix"></script>
-  <script src="js/import-engine.js?v=mymap-v3-1-129_pwa_real_install_fix"></script>
-  <script src="js/conductor-data-loader.js?v=mymap-v3-1-129_pwa_real_install_fix"></script>
-  <script src="js/search-engine.js?v=mymap-v3-1-129_pwa_real_install_fix"></script>
-  <script src="js/span-weight-calculator.js?v=mymap-v3-1-129_pwa_real_install_fix"></script>
-  <script src="js/popup-engine.js?v=mymap-v3-1-129_pwa_real_install_fix"></script>
-  <script src="js/map-engine.js?v=mymap-v3-1-129_pwa_real_install_fix"></script>
-  <script src="js/hv-crossings-layer.js?v=mymap-v3-1-129_pwa_real_install_fix"></script>
-  <script src="js/lean-map-app.js?v=mymap-v3-1-129_pwa_real_install_fix"></script>
+  <script src="js/lean-app-core.js?v=mymap-v3-1-236_reset_ui_detail"></script>
+  <script src="js/diagnostics.js?v=mymap-v3-1-236_reset_ui_detail"></script>
+  <script src="js/lean-engine-stubs.js?v=mymap-v3-1-236_reset_ui_detail"></script>
+  <script src="js/storage-engine.js?v=mymap-v3-1-236_reset_ui_detail"></script>
+  <script src="js/import-engine.js?v=mymap-v3-1-236_reset_ui_detail"></script>
+  <script src="js/conductor-data-loader.js?v=mymap-v3-1-236_reset_ui_detail"></script>
+  <script src="js/search-engine.js?v=mymap-v3-1-236_reset_ui_detail"></script>
+  <script src="js/span-weight-calculator.js?v=mymap-v3-1-236_reset_ui_detail"></script>
+  <script src="js/popup-engine.js?v=mymap-v3-1-236_reset_ui_detail"></script>
+  <script src="js/map-engine.js?v=mymap-v3-1-236_reset_ui_detail"></script>
+  <script src="js/hv-crossings-layer.js?v=mymap-v3-1-236_reset_ui_detail"></script>
+  <script src="js/address-search.js?v=mymap-v3-1-236_reset_ui_detail"></script>
+  <script src="js/lean-map-app.js?v=mymap-v3-1-236_reset_ui_detail"></script>
 
   <script>
-  // myMap PWA install hook · mymap-v3-1-129_pwa_real_install_fix
+  // myMap PWA install hook · mymap-v3-1-236_reset_ui_detail
   (function(){
     var deferredInstallPrompt=null;
     var installed=(window.matchMedia&&window.matchMedia('(display-mode: standalone)').matches)||window.navigator.standalone===true;
     var swReady=false;
     function toast(msg){try{window.UI&&window.UI.toast?window.UI.toast(msg):alert(msg);}catch(e){alert(msg);}}
     function syncInstallButton(){
-      var btn=document.getElementById('installAppBtn');
-      if(!btn)return;
-      if(installed){btn.textContent='App installed';btn.disabled=true;btn.classList.add('installed');return;}
-      btn.disabled=false;
-      btn.classList.remove('installed');
-      btn.textContent=deferredInstallPrompt?'Install app':'Install app';
-      btn.title=deferredInstallPrompt?'Install myMap as an app':'Reload once if install does not appear';
+      var buttons=Array.prototype.slice.call(document.querySelectorAll('#installAppBtn,[data-install-app]'));
+      if(!buttons.length)return;
+      buttons.forEach(function(btn){
+        if(installed){btn.textContent='App installed';btn.disabled=true;btn.classList.add('installed');return;}
+        btn.disabled=false;
+        btn.classList.remove('installed');
+        btn.textContent=installed?'App installed':'Download app';
+        btn.title=deferredInstallPrompt?'Install myMap as an app':'Reload once if install does not appear';
+      });
     }
     async function registerSw(){
       if(!('serviceWorker' in navigator))return false;
       if(!(location.protocol==='https:' || location.hostname==='localhost' || location.hostname==='127.0.0.1'))return false;
       try{
-        var reg=await navigator.serviceWorker.register('./service-worker.js?v=mymap-v3-1-129_pwa_real_install_fix',{scope:'./'});
+        var reg=await navigator.serviceWorker.register('./service-worker.js?v=mymap-v3-1-236_reset_ui_detail',{scope:'./'});
         try{await reg.update();}catch(e){}
         try{await navigator.serviceWorker.ready;}catch(e){}
         swReady=true;
@@ -240,7 +296,7 @@
             return;
           }catch(e){syncInstallButton();}
         }
-        toast('Install prompt is not ready yet. Close this, reload once, wait 10 seconds, then tap Install app again. Do not use Add to Home screen if it only creates a shortcut.');
+        toast('Install prompt not ready. Reload once, wait 10 seconds, then tap Download app.');
       },
       sync:syncInstallButton,
       register:registerSw
@@ -249,7 +305,7 @@
       e.preventDefault();
       deferredInstallPrompt=e;
       syncInstallButton();
-      toast('Install app is ready in the menu.');
+      try{window.MyMapPwaInstall?.sync?.();}catch(_e){}
     });
     window.addEventListener('appinstalled',function(){
       installed=true;
